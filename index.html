@@ -99,7 +99,7 @@
         <tfoot><tr class="total-row"><td colspan="3">कुल खर्च</td><td class="num" id="grandTotal">₹0</td></tr></tfoot>
       </table>
     </div>
-    <p class="foot-note">रेट सीधे Sheet से आए हैं। यहाँ टाइप किया रेट सिर्फ़ इसी गणना के लिए है — Sheet में सेव करने के लिए Sheet में ही बदलें, फिर "↻ Sheet से रेट लोड करें" दबाएं।</p>
+    <p class="foot-note">यहाँ रेट टाइप करते ही अपने आप Sheet में सेव हो जाती है — दोबारा टाइप करने की ज़रूरत नहीं।</p>
   </div>
 
   <div class="card">
@@ -207,9 +207,21 @@
       tbody.appendChild(tr);
     });
     tbody.querySelectorAll("[data-rate]").forEach(input => {
+      let debTimer = null;
       input.addEventListener("input", () => {
-        rates[input.getAttribute("data-rate")] = input.value === "" ? 0 : parseFloat(input.value);
+        const key = input.getAttribute("data-rate");
+        rates[key] = input.value === "" ? 0 : parseFloat(input.value);
         recalcDisplay();
+        clearTimeout(debTimer);
+        const statusEl = document.getElementById("saveStatus");
+        debTimer = setTimeout(async () => {
+          try {
+            await jsonp({ action: "saveRate", key, value: rates[key] });
+            statusEl.textContent = "✓ रेट Sheet में सेव हो गया";
+          } catch (e) {
+            statusEl.textContent = "रेट सेव नहीं हो पाया।";
+          }
+        }, 600);
       });
     });
   }
