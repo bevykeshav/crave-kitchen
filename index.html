@@ -195,12 +195,24 @@
   let dayCache = null;   // { date, rates, expenseLines, missing, totalExpense, counts }
   let paymentLoadedFor = null;   // kis तारीख का कैश/ऑनलाइन ऊपर के बॉक्स में है
 
-  // लाभ / हानि = (कैश + ऑनलाइन) − कुल खर्च
+  // मोमोज़ की कीमत = (पनीर पीस ÷ 10) × पनीर रेट + (वेज पीस ÷ 10) × वेज रेट — ये कुल खर्च में जुड़ती है
+  // गिनती पता न हो तो null
+  function momosCostFor(d) {
+    if (!d || !d.counts) return null;
+    return (d.counts.paneer / PIECES_PER_PLATE) * plateRateFrom(d.rates, "paneer")
+         + (d.counts.veg / PIECES_PER_PLATE) * plateRateFrom(d.rates, "veg");
+  }
+
+  // लाभ / हानि = (कैश + ऑनलाइन) − कुल खर्च;  कुल खर्च = बाकी टैब्स का जोड़ + मोमोज़ की कीमत
   function computePL() {
     const date = currentDate();
     if (!dayCache || dayCache.date !== date || paymentLoadedFor !== date) return null;
     const received = receivedNow();
-    return { received, expense: dayCache.totalExpense, pl: received - dayCache.totalExpense };
+    const otherExpense = dayCache.totalExpense;
+    const momos = momosCostFor(dayCache);
+    if (momos === null) return { received, otherExpense, momos: null, expense: null, pl: null };
+    const expense = otherExpense + momos;
+    return { received, otherExpense, momos, expense, pl: received - expense };
   }
   let headerSeq = 0;
   let headerTimer = null;
@@ -258,7 +270,7 @@
   async function refreshHeader() {
     const date = currentDate();
     const seq = ++headerSeq;
-    const data = await loadDayData(date, false);
+    const data = await loadDayData(date, true);
     if (seq !== headerSeq || date !== currentDate()) return;
     applyDayData(date, data);
   }
@@ -288,6 +300,12 @@
       return;
     }
     const dayWord = date === todayStr() ? "आज" : date.slice(8, 10) + "/" + date.slice(5, 7);
+    if (r.pl === null) {
+      label.textContent = dayWord + " का लाभ / हानि";
+      value.textContent = "—";
+      sub.textContent = "मोमोज़ की गिनती डालो";
+      return;
+    }
     const isLoss = r.pl < 0;
     label.textContent = dayWord + (isLoss ? " की हानि" : " का लाभ");
     value.textContent = money(Math.abs(r.pl));
@@ -377,16 +395,31 @@
     const salesEl = document.getElementById("dhSales");
     if (salesEl) {
       const r = computePL();
+      const hintEl = document.getElementById("dhCountHint");
       if (!r) {
         salesEl.textContent = "…";
+        document.getElementById("dhExpense").textContent = "…";
         document.getElementById("dhPL").textContent = "…";
+        document.getElementById("dhMomosCost").textContent = "…";
+        document.getElementById("dhExpenseTotal").textContent = "…";
+        if (hintEl) hintEl.textContent = "";
       } else {
-        const isLoss = r.pl < 0;
         salesEl.textContent = money(r.received);
-        document.getElementById("dhExpense").textContent = money(r.expense);
-        document.getElementById("dhPLLabel").textContent = isLoss ? "हानि" : "लाभ";
-        document.getElementById("dhPL").textContent = money(Math.abs(r.pl));
-        document.getElementById("dhPLBox").classList.toggle("clay", isLoss);
+        document.getElementById("dhMomosCost").textContent = r.momos === null ? "—" : money(r.momos);
+        document.getElementById("dhExpense").textContent = r.expense === null ? "—" : money(r.expense);
+        document.getElementById("dhExpenseTotal").textContent = r.expense === null ? "—" : money(r.expense);
+        if (r.pl === null) {
+          document.getElementById("dhPLLabel").textContent = "लाभ / हानि";
+          document.getElementById("dhPL").textContent = "—";
+          document.getElementById("dhPLBox").classList.remove("clay");
+          if (hintEl) hintEl.textContent = "मोमोज़ की गिनती (पीस) नीचे डालो, तब लाभ / हानि दिखेगी।";
+        } else {
+          const isLoss = r.pl < 0;
+          document.getElementById("dhPLLabel").textContent = isLoss ? "हानि" : "लाभ";
+          document.getElementById("dhPL").textContent = money(Math.abs(r.pl));
+          document.getElementById("dhPLBox").classList.toggle("clay", isLoss);
+          if (hintEl) hintEl.textContent = "";
+        }
       }
     }
     updateHeader();
@@ -771,22 +804,23 @@
     c.innerHTML = `
       <div class="card">
         <h2>रोज़ का हिसाब</h2>
-        <p class="hint">${esc(date)} — कुल बिक्री (कैश + ऑनलाइन) − कुल खर्च = लाभ / हानि।</p>
+        <p class="hint">${esc(date)} — कुल बिक्री (कैश + ऑनलाइन) − कुल खर्च (मोमोज़ की कीमत समेत) = लाभ / हानि।</p>
         <div class="stat-grid">
           <div class="stat"><div class="label">कुल बिक्री</div><div class="value" id="dhSales">₹0</div></div>
-          <div class="stat clay"><div class="label">कुल खर्च</div><div class="value" id="dhExpense">${money(totalExpense)}</div></div>
+          <div class="stat clay"><div class="label">कुल खर्च</div><div class="value" id="dhExpense">…</div></div>
           <div class="stat" id="dhPLBox"><div class="label" id="dhPLLabel">लाभ</div><div class="value" id="dhPL">₹0</div></div>
         </div>
+        <p class="warn" id="dhCountHint"></p>
         ${missing.length ? `<p class="warn">⚠ ये लोड नहीं हो पाए, खर्च अधूरा हो सकता है: ${esc(missing.join(", "))}</p>` : ''}
         <div class="breakdown-list" id="recvLine"></div>
       </div>
 
       <div class="card">
-        <h2>अनुमानित बिक्री (प्लेट के हिसाब से)</h2>
-        <p class="hint">सिर्फ़ अंदाज़े के लिए — लाभ/हानि में नहीं जुड़ती, वो कैश + ऑनलाइन से बनता है। कितने मोमोज़ बने (पीस) डालो — 1 प्लेट = ${PIECES_PER_PLATE} पीस।</p>
+        <h2>मोमोज़ (प्लेट के हिसाब से)</h2>
+        <p class="hint">कितने मोमोज़ बने (पीस) डालो — 1 प्लेट = ${PIECES_PER_PLATE} पीस। प्लेट × रेट की ये रकम कुल खर्च में जुड़ती है।</p>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>मोमोज़</th><th class="num">बने (पीस)</th><th class="num">प्लेट</th><th class="num">₹/प्लेट</th><th class="num">बिक्री ₹</th></tr></thead>
+            <thead><tr><th>मोमोज़</th><th class="num">बने (पीस)</th><th class="num">प्लेट</th><th class="num">₹/प्लेट</th><th class="num">कीमत ₹</th></tr></thead>
             <tbody>
               <tr>
                 <td class="name-cell">पनीर</td>
@@ -803,7 +837,7 @@
                 <td class="num" id="plVegSales">₹0</td>
               </tr>
             </tbody>
-            <tfoot><tr class="total-row"><td colspan="4">अनुमानित बिक्री</td><td class="num" id="plSalesTotal">₹0</td></tr></tfoot>
+            <tfoot><tr class="total-row"><td colspan="4">मोमोज़ की कुल कीमत</td><td class="num" id="plSalesTotal">₹0</td></tr></tfoot>
           </table>
         </div>
         <button class="primary" id="mhSaveBtn">इस तारीख की गिनती सेव करें</button>
@@ -813,12 +847,13 @@
 
       <div class="card">
         <h2>आज का खर्च</h2>
-        <p class="hint">बाकी टैब्स में जो डाला है उसका जोड़ (सिर्फ़ देखने के लिए — बदलाव उन्हीं टैब्स में करें)।</p>
+        <p class="hint">बाकी टैब्स में जो डाला है उसका जोड़ (बदलाव उन्हीं टैब्स में करें) और ऊपर वाले मोमोज़ कार्ड की कीमत।</p>
         <table>
           <tbody>
             ${expenseLines.map(x => `<tr><td class="name-cell">${esc(x.label)}</td><td class="num">${x.v === null ? '—' : money(x.v)}</td></tr>`).join("")}
+            <tr><td class="name-cell">मोमोज़ (प्लेट रेट × प्लेट)</td><td class="num" id="dhMomosCost">—</td></tr>
           </tbody>
-          <tfoot><tr class="total-row"><td>कुल खर्च</td><td class="num">${money(totalExpense)}</td></tr></tfoot>
+          <tfoot><tr class="total-row"><td>कुल खर्च</td><td class="num" id="dhExpenseTotal">…</td></tr></tfoot>
         </table>
       </div>
 
@@ -857,8 +892,9 @@
       if (fromUser === true || dayCache.counts) dayCache.counts = { paneer, veg };
       dayCache.rates.plate_paneer = paneerRate;
       dayCache.rates.plate_veg = vegRate;
+      refreshReceived();
 
-      // अनुमानित बिक्री = (पनीर ÷ 10) × पनीर रेट + (वेज ÷ 10) × वेज रेट
+      // मोमोज़ की कीमत = (पनीर ÷ 10) × पनीर रेट + (वेज ÷ 10) × वेज रेट
       const paneerSales = (paneer / PIECES_PER_PLATE) * paneerRate;
       const vegSales = (veg / PIECES_PER_PLATE) * vegRate;
       const sales = paneerSales + vegSales;
