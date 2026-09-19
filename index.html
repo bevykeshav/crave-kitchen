@@ -107,10 +107,14 @@
   <div class="date-row">
     <label for="mainDate">तारीख</label>
     <input type="date" id="mainDate">
+    <label for="cashInput" style="min-width:auto;">कैश ₹</label>
+    <input type="number" id="cashInput" min="0" step="1" placeholder="0" style="width:100px;">
+    <label for="onlineInput" style="min-width:auto;">ऑनलाइन ₹</label>
+    <input type="number" id="onlineInput" min="0" step="1" placeholder="0" style="width:100px;">
+    <span class="save-status" id="paymentStatus" style="min-height:auto;"></span>
   </div>
 
   <div class="tabs" id="tabs">
-    <button class="tab-btn" data-tab="dashboard">डैशबोर्ड</button>
     <button class="tab-btn" data-tab="daily">Daily का सामान</button>
     <button class="tab-btn" data-tab="momos">मोमोज़ बनाने का सामान</button>
     <button class="tab-btn" data-tab="packing">Packing</button>
@@ -154,12 +158,12 @@
   }
 
   document.getElementById("mainDate").value = todayStr();
-  document.getElementById("mainDate").addEventListener("change", () => renderActiveTab());
+  document.getElementById("mainDate").addEventListener("change", () => { renderActiveTab(); loadPayment(); });
 
   function currentDate() { return document.getElementById("mainDate").value || todayStr(); }
 
   // ---------- tabs ----------
-  let activeTab = "dashboard";
+  let activeTab = "daily";
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       activeTab = btn.getAttribute("data-tab");
@@ -167,57 +171,51 @@
       renderActiveTab();
     });
   });
-  document.querySelector('.tab-btn[data-tab="dashboard"]').classList.add("active");
+  document.querySelector('.tab-btn[data-tab="daily"]').classList.add("active");
 
   function renderActiveTab() {
     const c = document.getElementById("tabContent");
     c.innerHTML = '<div class="card"><p class="muted">लोड हो रहा है…</p></div>';
     const renderers = {
-      dashboard: renderDashboard, daily: () => renderQtySection("daily", "Daily का सामान"),
+      daily: () => renderQtySection("daily", "Daily का सामान"),
       momos: () => renderQtySection("momos", "मोमोज़ बनाने का सामान"),
       packing: () => renderQtySection("packing", "Packing"),
       workexpense: renderWorkExpense, attendance: renderAttendance,
       momoshisab: renderMomosHisab, others: renderOthers
     };
-    (renderers[activeTab] || renderDashboard)();
+    (renderers[activeTab] || renderers.daily)();
   }
 
   // ===================================================================
-  // डैशबोर्ड
+  // कैश / ऑनलाइन — तारीख के साथ ऊपर ही, हर बार सीधे डाला/सेव किया जा सकता है
   // ===================================================================
-  async function renderDashboard() {
+  async function loadPayment() {
     const date = currentDate();
-    const c = document.getElementById("tabContent");
     try {
-      const s = await call("getDaySummary", { date });
-      c.innerHTML = `
-        <div class="card">
-          <h2>आज का हिसाब</h2>
-          <p class="hint">${esc(date)}</p>
-          <div class="stat-grid">
-            <div class="stat"><div class="label">कैश</div><div class="value">${money(s.cash)}</div></div>
-            <div class="stat"><div class="label">ऑनलाइन</div><div class="value">${money(s.online)}</div></div>
-            <div class="stat clay"><div class="label">कुल प्राप्त राशि</div><div class="value">${money(s.totalReceived)}</div></div>
-          </div>
-          <div class="stat-grid">
-            <div class="stat"><div class="label">कुल खर्च</div><div class="value" style="color:var(--clay)">${money(s.totalExpense)}</div></div>
-            <div class="stat" style="background:${s.profitLoss>=0?'var(--green-soft)':'var(--clay-soft)'}">
-              <div class="label">${s.profitLoss>=0 ? "लाभ" : "हानि"}</div>
-              <div class="value" style="color:${s.profitLoss>=0?'var(--green)':'var(--clay)'}">${money(Math.abs(s.profitLoss))}</div>
-            </div>
-          </div>
-          <div class="breakdown-list">
-            <div><span>Daily का सामान</span><span>${money(s.breakdown.daily)}</span></div>
-            <div><span>मोमोज़ बनाने का सामान</span><span>${money(s.breakdown.momosSaaman)}</span></div>
-            <div><span>Packing</span><span>${money(s.breakdown.packing)}</span></div>
-            <div><span>Work Expense</span><span>${money(s.breakdown.workExpense)}</span></div>
-            <div><span>Others</span><span>${money(s.breakdown.others)}</span></div>
-          </div>
-        </div>`;
-    } catch (e) {
-      c.innerHTML = '<div class="card"><p class="muted">लोड नहीं हो पाया। SCRIPT_URL चेक करें।</p></div>';
-    }
+      const p = await call("getPayment", { date });
+      document.getElementById("cashInput").value = p.cash || "";
+      document.getElementById("onlineInput").value = p.online || "";
+    } catch (e) { /* चुप रहो, save karte waqt फिर कोशिश होगी */ }
   }
+
+  let paymentSaveTimer = null;
+  function schedulePaymentSave() {
+    clearTimeout(paymentSaveTimer);
+    const statusEl = document.getElementById("paymentStatus");
+    paymentSaveTimer = setTimeout(async () => {
+      const date = currentDate();
+      const cash = parseFloat(document.getElementById("cashInput").value) || 0;
+      const online = parseFloat(document.getElementById("onlineInput").value) || 0;
+      statusEl.textContent = "सेव हो रहा है…";
+      try {
+        await call("savePayment", { payload: { date, cash, online } });
+        statusEl.textContent = "✓ सेव हो गया";
+      } catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
+    }, 600);
+  }
+  document.getElementById("cashInput").addEventListener("input", schedulePaymentSave);
+  document.getElementById("onlineInput").addEventListener("input", schedulePaymentSave);
+  loadPayment();
 
   // ===================================================================
   // qty सेक्शन (Daily का सामान / मोमोज़ बनाने का सामान / Packing)
