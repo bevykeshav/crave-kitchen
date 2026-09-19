@@ -3,355 +3,656 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>मोमोज़ हिसाब-किताब</title>
+<title>Crave Kitchen — रोज़ का हिसाब</title>
 <style>
   :root {
-    --paper: #FAF6EC; --paper-line: #DDD3B8; --ink: #262019; --ink-soft: #6B5F4C;
-    --green: #2E5B41; --green-soft: #E4EEE3; --turmeric: #D99A2B; --clay: #A8503A;
-    --card: #FFFFFF; --shadow: rgba(38, 32, 25, 0.08);
+    --paper:#FAF6EC; --line:#DDD3B8; --ink:#262019; --ink-soft:#6B5F4C;
+    --green:#2E5B41; --green-soft:#E4EEE3; --clay:#A8503A; --clay-soft:#F4E4DC;
+    --card:#FFFFFF; --shadow:rgba(38,32,25,.08);
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #1B1712; --paper-line: #3A3226; --ink: #EFE7D8; --ink-soft: #B3A78F;
-      --green: #6FAE86; --green-soft: #223228; --turmeric: #E3B458; --clay: #D98468;
-      --card: #241F18; --shadow: rgba(0, 0, 0, 0.35);
-    }
+    :root { --paper:#1B1712; --line:#3A3226; --ink:#EFE7D8; --ink-soft:#B3A78F;
+      --green:#6FAE86; --green-soft:#223228; --clay:#D98468; --clay-soft:#35251F;
+      --card:#241F18; --shadow:rgba(0,0,0,.35); }
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--paper); color: var(--ink);
-    font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans Devanagari", sans-serif;
-    padding: 20px 14px 60px; line-height: 1.5; }
-  .wrap { max-width: 780px; margin: 0 auto; }
-  header { margin-bottom: 22px; border-bottom: 2px solid var(--ink); padding-bottom: 14px; }
-  header .kicker { font-size: 13px; color: var(--green); font-weight: 600; }
-  h1 { font-family: Georgia, "Noto Serif Devanagari", serif; font-size: 26px; margin: 4px 0 6px; }
-  header p { margin: 0; color: var(--ink-soft); font-size: 14px; }
-  .card { background: var(--card); border: 1px solid var(--paper-line); border-radius: 10px;
-    padding: 18px; margin-bottom: 18px; box-shadow: 0 1px 3px var(--shadow); }
-  .card h2 { font-family: Georgia, "Noto Serif Devanagari", serif; font-size: 18px; margin: 0 0 4px; }
-  .card .hint { color: var(--ink-soft); font-size: 13px; margin: 0 0 14px; }
-  .batch-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
-  .batch-row label { font-size: 14px; font-weight: 600; min-width: 110px; }
-  .batch-row input[type="number"], .batch-row input[type="date"] {
-    font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; width: 140px;
-    padding: 8px 10px; border: 1.5px solid var(--paper-line); border-radius: 8px;
-    background: var(--paper); color: var(--ink); }
-  .split { font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
-  button.primary { font-size: 14px; font-weight: 700; padding: 10px 18px; border-radius: 8px;
-    border: none; background: var(--green); color: #fff; cursor: pointer; margin-top: 12px; }
-  button.secondary { font-size: 13px; font-weight: 600; padding: 6px 14px; border-radius: 20px;
-    border: 1px solid var(--paper-line); background: var(--green-soft); color: var(--green); cursor: pointer; }
-  button.secondary.active { background: var(--green); color: #fff; }
-  button.danger-link { background: none; border: none; color: var(--clay); font-size: 12px;
-    text-decoration: underline; cursor: pointer; padding: 2px 6px; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  thead th { text-align: left; font-size: 12px; color: var(--ink-soft); font-weight: 600;
-    border-bottom: 1.5px solid var(--ink); padding: 6px 6px; }
-  tbody td { padding: 8px 6px; border-bottom: 1px solid var(--paper-line); }
-  tbody tr:last-child td { border-bottom: none; }
-  .item-name { font-weight: 600; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .rate-input { width: 78px; padding: 5px 6px; border: 1.5px solid var(--paper-line); border-radius: 6px;
-    background: var(--paper); color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; font-size: 14px; }
-  .total-row td { border-top: 2px solid var(--ink); border-bottom: none; padding-top: 14px; font-weight: 700; font-size: 16px; }
-  .total-row .num { color: var(--clay); }
-  .table-scroll { overflow-x: auto; }
-  .foot-note { font-size: 12.5px; color: var(--ink-soft); margin-top: 10px; }
-  .save-status { font-size: 12px; color: var(--green); margin-top: 10px; min-height: 16px; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
-  .stat { background: var(--green-soft); border-radius: 8px; padding: 10px 12px; }
-  .stat .label { font-size: 12px; color: var(--ink-soft); }
-  .stat .value { font-size: 19px; font-weight: 700; color: var(--green); font-variant-numeric: tabular-nums; }
-  .stat.cost .value { color: var(--clay); }
-  a { color: var(--green); }
-  .config-banner { background: var(--clay); color: #fff; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans Devanagari",sans-serif;
+    padding:14px 10px 70px; line-height:1.5; }
+  .wrap { max-width:820px; margin:0 auto; }
+  header { margin-bottom:14px; border-bottom:2px solid var(--ink); padding-bottom:10px; }
+  header .kicker { font-size:12px; color:var(--green); font-weight:600; }
+  h1 { font-family:Georgia,"Noto Serif Devanagari",serif; font-size:22px; margin:2px 0 0; }
+
+  .date-row { display:flex; align-items:center; gap:10px; margin:12px 0; flex-wrap:wrap; }
+  .date-row label { font-weight:700; font-size:14px; }
+  .date-row input[type="date"] { font-size:16px; font-weight:700; padding:8px 10px;
+    border:1.5px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); }
+
+  .tabs { display:flex; gap:6px; overflow-x:auto; padding-bottom:6px; margin-bottom:14px;
+    -webkit-overflow-scrolling:touch; }
+  .tab-btn { flex:0 0 auto; font-size:13px; font-weight:700; padding:9px 14px; border-radius:20px;
+    border:1px solid var(--line); background:var(--card); color:var(--ink-soft); cursor:pointer; white-space:nowrap; }
+  .tab-btn.active { background:var(--green); color:#fff; border-color:var(--green); }
+
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:16px; margin-bottom:16px; box-shadow:0 1px 3px var(--shadow); }
+  .card h2 { font-family:Georgia,"Noto Serif Devanagari",serif; font-size:17px; margin:0 0 4px; }
+  .card .hint { color:var(--ink-soft); font-size:12.5px; margin:0 0 12px; }
+
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  thead th { text-align:left; font-size:11.5px; color:var(--ink-soft); font-weight:700;
+    border-bottom:1.5px solid var(--ink); padding:6px 4px; }
+  tbody td { padding:7px 4px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  tbody tr:last-child td { border-bottom:none; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .name-cell { font-weight:600; }
+  .table-scroll { overflow-x:auto; }
+
+  input[type="number"], input[type="text"] { font-size:15px; font-variant-numeric:tabular-nums;
+    padding:6px 8px; border:1.5px solid var(--line); border-radius:6px; background:var(--paper);
+    color:var(--ink); width:90px; }
+  input[type="text"].wide { width:100%; }
+  input:focus { outline:2px solid var(--clay); outline-offset:1px; }
+
+  .total-row td { border-top:2px solid var(--ink); border-bottom:none; padding-top:12px;
+    font-weight:700; font-size:15.5px; }
+  .total-row .num { color:var(--clay); }
+
+  button.primary { font-size:14px; font-weight:700; padding:11px 18px; border-radius:8px;
+    border:none; background:var(--green); color:#fff; cursor:pointer; margin-top:12px; width:100%; }
+  button.secondary { font-size:13px; font-weight:600; padding:7px 14px; border-radius:20px;
+    border:1px solid var(--line); background:var(--green-soft); color:var(--green); cursor:pointer; }
+  button.add-row { font-size:13px; font-weight:700; padding:8px 14px; border-radius:8px;
+    border:1.5px dashed var(--green); background:transparent; color:var(--green); cursor:pointer;
+    width:100%; margin-top:8px; }
+  button.icon-btn { background:none; border:none; color:var(--ink-soft); font-size:16px; cursor:pointer; padding:2px 6px; }
+  button.icon-btn.danger { color:var(--clay); }
+  button.chip { font-size:12px; padding:4px 10px; border-radius:14px; border:1px solid var(--line);
+    background:var(--paper); color:var(--ink-soft); cursor:pointer; }
+  button.chip.on { background:var(--green); color:#fff; border-color:var(--green); }
+
+  .save-status { font-size:12.5px; color:var(--green); margin-top:8px; min-height:16px; }
+
+  .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:8px; }
+  .stat { background:var(--green-soft); border-radius:8px; padding:12px; text-align:center; }
+  .stat.clay { background:var(--clay-soft); }
+  .stat .label { font-size:12px; color:var(--ink-soft); }
+  .stat .value { font-size:20px; font-weight:800; color:var(--green); font-variant-numeric:tabular-nums; }
+  .stat.clay .value { color:var(--clay); }
+
+  .breakdown-list { font-size:13.5px; color:var(--ink-soft); margin-top:10px; }
+  .breakdown-list div { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed var(--line); }
+
+  .worker-row { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line); }
+  .worker-row:last-child { border-bottom:none; }
+  .worker-row .name { font-weight:600; }
+
+  .add-form { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+  .master-manage { margin-top:14px; border-top:1px dashed var(--line); padding-top:12px; }
+  .master-manage summary { cursor:pointer; font-size:13px; color:var(--green); font-weight:700; }
+  .master-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 0; }
+  .muted { color:var(--ink-soft); }
+  a { color:var(--green); }
+  .hidden { display:none !important; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="kicker">मोमोज़ ठेला हिसाब-किताब</div>
-    <h1>रोज़ का हिसाब और रिपोर्ट</h1>
-    <p>डेटा सीधे आपकी Google Sheet से — जहाँ चाहें रेट बदलें, यहाँ रिपोर्ट बने।</p>
+    <div class="kicker">Crave Kitchen</div>
+    <h1>रोज़ का हिसाब</h1>
   </header>
 
-  <div id="configBanner"></div>
-
-  <div class="card">
-    <h2>आज की एंट्री</h2>
-    <p class="hint">पनीर सिर्फ़ पनीर मोमोज़ में लगता है। बाकी सारा माल दोनों में शेयर होता है।</p>
-    <div class="batch-row"><label for="entryDate">तारीख</label><input type="date" id="entryDate"></div>
-    <div class="batch-row"><label for="paneerCount">पनीर मोमोज़</label><input type="number" id="paneerCount" value="615" min="0" step="1"></div>
-    <div class="batch-row"><label for="vegCount">वेज मोमोज़</label><input type="number" id="vegCount" value="585" min="0" step="1">
-      <span class="split" id="splitInfo"></span></div>
-    <button class="primary" id="saveEntryBtn">आज की एंट्री सेव करें (Sheet में)</button>
-    <button class="secondary" id="refreshBtn" style="margin-left:8px;">↻ Sheet से रेट लोड करें</button>
-    <p class="save-status" id="saveStatus"></p>
+  <div class="date-row">
+    <label for="mainDate">तारीख</label>
+    <input type="date" id="mainDate">
   </div>
 
-  <div class="card">
-    <h2>माल और रेट</h2>
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>आइटम</th><th class="num">मात्रा</th><th class="num">रेट ₹/किलो</th><th class="num">कीमत ₹</th></tr></thead>
-        <tbody id="itemsBody"></tbody>
-        <tfoot><tr class="total-row"><td colspan="3">कुल खर्च</td><td class="num" id="grandTotal">₹0</td></tr></tfoot>
-      </table>
-    </div>
-    <p class="foot-note">यहाँ रेट टाइप करते ही अपने आप Sheet में सेव हो जाती है — दोबारा टाइप करने की ज़रूरत नहीं।</p>
+  <div class="tabs" id="tabs">
+    <button class="tab-btn" data-tab="dashboard">डैशबोर्ड</button>
+    <button class="tab-btn" data-tab="daily">Daily का सामान</button>
+    <button class="tab-btn" data-tab="momos">मोमोज़ बनाने का सामान</button>
+    <button class="tab-btn" data-tab="packing">Packing</button>
+    <button class="tab-btn" data-tab="workexpense">Work Expense</button>
+    <button class="tab-btn" data-tab="attendance">Attendance</button>
+    <button class="tab-btn" data-tab="momoshisab">मोमोज़ हिसाब</button>
+    <button class="tab-btn" data-tab="others">Others</button>
   </div>
 
-  <div class="card">
-    <h2>रिपोर्ट</h2>
-    <div class="tabs">
-      <button class="secondary" data-period="week">इस हफ़्ते</button>
-      <button class="secondary" data-period="month">इस महीने</button>
-      <button class="secondary" data-period="year">इस साल</button>
-      <button class="secondary" data-period="all">सारा डेटा</button>
-    </div>
-    <div class="stat-grid">
-      <div class="stat"><div class="label">कुल पनीर मोमोज़</div><div class="value" id="statPaneer">—</div></div>
-      <div class="stat"><div class="label">कुल वेज मोमोज़</div><div class="value" id="statVeg">—</div></div>
-      <div class="stat"><div class="label">कुल मोमोज़</div><div class="value" id="statTotal">—</div></div>
-      <div class="stat cost"><div class="label">कुल खर्च</div><div class="value" id="statCost">—</div></div>
-    </div>
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>तारीख</th><th class="num">पनीर</th><th class="num">वेज</th><th class="num">कुल</th><th class="num">खर्च ₹</th><th></th></tr></thead>
-        <tbody id="reportBody"><tr><td colspan="6" style="color:var(--ink-soft);">लोड हो रहा है…</td></tr></tbody>
-      </table>
-    </div>
-    <button class="secondary" id="exportBtn" style="margin-top:14px;">CSV डाउनलोड करें</button>
-  </div>
+  <div id="tabContent"></div>
 </div>
 
 <script>
-  // ===== CONFIG: apna Apps Script Web App URL yahan daalo =====
-  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzkGWBrJH6B1kYSl7Cv9MUtxss_Re2Hr07OhFJr3Cd7RQOWlwRUMFUmENWyFzUCBtdhHw/exec";
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzAn2anBO1U38hECJ3D9zAX9qYJzPwF8uN7-BxM7Of1zj8QaUorNBI3NC7cuSrQ8ln1/exec";
 
-  const BASE_MOMOS = 1200;
-  const BASE_PANEER = 615;
-  const ITEMS = [
-    { key: "maida", name: "मैदा", grams: 11000 },
-    { key: "ajinomoto", name: "अजीनोमोटो", grams: 1000 },
-    { key: "gobhi", name: "पत्ता गोभी", grams: 15000 },
-    { key: "gajar", name: "गाजर", grams: 1500 },
-    { key: "piyaj", name: "प्याज", grams: 15000 },
-    { key: "dhaniya", name: "धनिया", grams: 750 },
-    { key: "harimirch", name: "हरी मिर्च", grams: 3000 },
-    { key: "adrak", name: "अदरक", grams: 3000 },
-    { key: "tamatar", name: "टमाटर", grams: 3000 },
-    { key: "lalmirch", name: "लाल मिर्च पाउडर", grams: 1000 },
-    { key: "nutrala", name: "सोयाबीन नुट्रेला", grams: 200 },
-    { key: "ararot", name: "अरारोट पाउडर", grams: 1000 },
-    { key: "namak", name: "नमक", grams: 2000 },
-    { key: "oilraggold", name: "तेल (राग गोल्ड)", grams: 4000 },
-    { key: "musteroil", name: "सरसों तेल", grams: 1000 },
-    { key: "mayo", name: "मेयोनीज़", grams: 3000 },
-    { key: "oregano", name: "ओरिगेनो", grams: 500 },
-    { key: "butter", name: "बटर", grams: 500 },
-    { key: "paneer", name: "पनीर", grams: 4500 },
-    { key: "lahsun", name: "लहसुन", grams: 4000 },
-    { key: "dalda", name: "डालडा", grams: 1000 },
-    { key: "lpg", name: "एलपीजी गैस", grams: 14000 },
-  ];
-  const PANEER_PER_MOMO_G = 4500 / BASE_PANEER;
-  let rates = {};
-
-  function formatQty(g) { if (g >= 1000) { const kg = g/1000; return (kg%1===0?kg.toFixed(0):kg.toFixed(2))+" किग्रा"; } return Math.round(g)+" ग्राम"; }
-  function formatMoney(v) { return "₹"+Math.round(v).toLocaleString("en-IN"); }
+  // ---------- helpers ----------
   function todayStr() { const d=new Date(); const tz=d.getTimezoneOffset()*60000; return new Date(d-tz).toISOString().slice(0,10); }
+  function money(v){ return "₹"+Math.round(Number(v)||0).toLocaleString("en-IN"); }
+  function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-  // ===== JSONP helper (avoids CORS issues with Apps Script) =====
   let jsonpCounter = 0;
   function jsonp(params) {
     return new Promise((resolve, reject) => {
       const cbName = "jsonp_cb_" + (jsonpCounter++);
       const timeout = setTimeout(() => { cleanup(); reject(new Error("timeout")); }, 15000);
-      function cleanup() {
-        clearTimeout(timeout);
-        delete window[cbName];
-        if (script.parentNode) script.parentNode.removeChild(script);
-      }
+      function cleanup(){ clearTimeout(timeout); delete window[cbName]; if (script.parentNode) script.parentNode.removeChild(script); }
       window[cbName] = (data) => { cleanup(); resolve(data); };
-      const qs = new URLSearchParams(Object.assign({}, params, { callback: cbName })).toString();
+      const qp = Object.assign({}, params, { callback: cbName });
+      Object.keys(qp).forEach(k => { if (typeof qp[k] === "object") qp[k] = JSON.stringify(qp[k]); });
+      const qs = new URLSearchParams(qp).toString();
       const script = document.createElement("script");
       script.src = SCRIPT_URL + "?" + qs;
       script.onerror = () => { cleanup(); reject(new Error("network")); };
       document.body.appendChild(script);
     });
   }
+  function call(action, extra) {
+    const params = Object.assign({ action }, extra || {});
+    if (params.payload) params.payload = JSON.stringify(params.payload);
+    return jsonp(params);
+  }
 
-  function computeForCounts(paneerCount, vegCount) {
-    const totalCount = paneerCount + vegCount;
-    const totalFactor = totalCount / BASE_MOMOS;
-    let grandTotal = 0; const perItem = {};
-    ITEMS.forEach(item => {
-      const grams = item.key === "paneer" ? PANEER_PER_MOMO_G * paneerCount : item.grams * totalFactor;
-      const rate = rates[item.key] ? parseFloat(rates[item.key]) : 0;
-      const cost = (grams/1000) * rate;
-      perItem[item.key] = { grams, cost }; grandTotal += cost;
+  document.getElementById("mainDate").value = todayStr();
+  document.getElementById("mainDate").addEventListener("change", () => renderActiveTab());
+
+  function currentDate() { return document.getElementById("mainDate").value || todayStr(); }
+
+  // ---------- tabs ----------
+  let activeTab = "dashboard";
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      activeTab = btn.getAttribute("data-tab");
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+      renderActiveTab();
     });
-    return { perItem, totalCost: grandTotal, totalCount };
-  }
-
-  function buildRows() {
-    const tbody = document.getElementById("itemsBody"); tbody.innerHTML = "";
-    ITEMS.forEach(item => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td class="item-name">${item.name}</td>
-        <td class="num" data-qty="${item.key}">—</td>
-        <td class="num"><input type="number" class="rate-input" data-rate="${item.key}" min="0" step="0.01" value="${rates[item.key]||""}" placeholder="0"></td>
-        <td class="num" data-cost="${item.key}">₹0</td>`;
-      tbody.appendChild(tr);
-    });
-    tbody.querySelectorAll("[data-rate]").forEach(input => {
-      let debTimer = null;
-      input.addEventListener("input", () => {
-        const key = input.getAttribute("data-rate");
-        rates[key] = input.value === "" ? 0 : parseFloat(input.value);
-        recalcDisplay();
-        clearTimeout(debTimer);
-        const statusEl = document.getElementById("saveStatus");
-        debTimer = setTimeout(async () => {
-          try {
-            await jsonp({ action: "saveRate", key, value: rates[key] });
-            statusEl.textContent = "✓ रेट Sheet में सेव हो गया";
-          } catch (e) {
-            statusEl.textContent = "रेट सेव नहीं हो पाया।";
-          }
-        }, 600);
-      });
-    });
-  }
-
-  function currentCounts() {
-    let p = parseInt(document.getElementById("paneerCount").value,10);
-    let v = parseInt(document.getElementById("vegCount").value,10);
-    if (!p || p<0) p=0; if (!v || v<0) v=0;
-    return { paneerCount:p, vegCount:v };
-  }
-
-  function recalcDisplay() {
-    const {paneerCount, vegCount} = currentCounts();
-    const {perItem, totalCost, totalCount} = computeForCounts(paneerCount, vegCount);
-    document.getElementById("splitInfo").textContent = totalCount>0 ? `कुल ${totalCount} मोमोज़` : "";
-    ITEMS.forEach(item => {
-      document.querySelector(`[data-qty="${item.key}"]`).textContent = formatQty(perItem[item.key].grams);
-      document.querySelector(`[data-cost="${item.key}"]`).textContent = formatMoney(perItem[item.key].cost);
-    });
-    document.getElementById("grandTotal").textContent = formatMoney(totalCost);
-  }
-
-  document.getElementById("paneerCount").addEventListener("input", recalcDisplay);
-  document.getElementById("vegCount").addEventListener("input", recalcDisplay);
-  document.getElementById("entryDate").value = todayStr();
-
-  async function loadRatesFromSheet() {
-    const statusEl = document.getElementById("saveStatus");
-    statusEl.textContent = "Sheet से रेट लोड हो रहे हैं…";
-    try {
-      const data = await jsonp({ action: "rates" });
-      rates = data.rates || {};
-      if (data.paneerCount) document.getElementById("paneerCount").value = data.paneerCount;
-      if (data.vegCount) document.getElementById("vegCount").value = data.vegCount;
-      buildRows();
-      recalcDisplay();
-      statusEl.textContent = "✓ Sheet से रेट लोड हो गए";
-    } catch (e) {
-      statusEl.textContent = "Sheet से रेट लोड नहीं हो पाए — SCRIPT_URL चेक करें।";
-    }
-  }
-
-  document.getElementById("refreshBtn").addEventListener("click", loadRatesFromSheet);
-
-  document.getElementById("saveEntryBtn").addEventListener("click", async () => {
-    const date = document.getElementById("entryDate").value || todayStr();
-    const {paneerCount, vegCount} = currentCounts();
-    const {totalCost, totalCount} = computeForCounts(paneerCount, vegCount);
-    const statusEl = document.getElementById("saveStatus");
-    statusEl.textContent = "सेव हो रहा है…";
-    try {
-      await jsonp({ action: "save", date, paneer: paneerCount, veg: vegCount, total: totalCount, cost: totalCost.toFixed(2) });
-      statusEl.textContent = `✓ ${date} की एंट्री Sheet में सेव हो गई (${formatMoney(totalCost)})`;
-      loadReport(currentPeriod);
-    } catch (e) {
-      statusEl.textContent = "सेव नहीं हो पाया, दोबारा कोशिश करें।";
-    }
   });
+  document.querySelector('.tab-btn[data-tab="dashboard"]').classList.add("active");
 
-  let currentPeriod = "week";
-  let allEntries = [];
-
-  function periodRange(period) {
-    const now = new Date(); const y=now.getFullYear(), m=now.getMonth(), d=now.getDate();
-    let start;
-    if (period==="week") { const day=now.getDay(); const diff=(day===0?6:day-1); start=new Date(y,m,d-diff); }
-    else if (period==="month") start=new Date(y,m,1);
-    else if (period==="year") start=new Date(y,0,1);
-    else return { start:"0000-01-01", end:"9999-12-31" };
-    const fmt=(dt)=>{ const tz=dt.getTimezoneOffset()*60000; return new Date(dt-tz).toISOString().slice(0,10); };
-    return { start: fmt(start), end: todayStr() };
+  function renderActiveTab() {
+    const c = document.getElementById("tabContent");
+    c.innerHTML = '<div class="card"><p class="muted">लोड हो रहा है…</p></div>';
+    const renderers = {
+      dashboard: renderDashboard, daily: () => renderQtySection("daily", "Daily का सामान"),
+      momos: () => renderQtySection("momos", "मोमोज़ बनाने का सामान"),
+      packing: () => renderQtySection("packing", "Packing"),
+      workexpense: renderWorkExpense, attendance: renderAttendance,
+      momoshisab: renderMomosHisab, others: renderOthers
+    };
+    (renderers[activeTab] || renderDashboard)();
   }
 
-  async function loadReport(period) {
-    currentPeriod = period;
-    document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.getAttribute("data-period")===period));
-    const reportBody = document.getElementById("reportBody");
-    reportBody.innerHTML = '<tr><td colspan="6" style="color:var(--ink-soft);">लोड हो रहा है…</td></tr>';
+  // ===================================================================
+  // डैशबोर्ड
+  // ===================================================================
+  async function renderDashboard() {
+    const date = currentDate();
+    const c = document.getElementById("tabContent");
     try {
-      const data = await jsonp({ action: "entries" });
-      allEntries = data.entries || [];
-      const { start, end } = periodRange(period);
-      const filtered = allEntries.filter(e => e.date >= start && e.date <= end).sort((a,b)=> b.date.localeCompare(a.date));
-      let totalPaneer=0, totalVeg=0, totalCost=0;
-      reportBody.innerHTML = "";
-      if (filtered.length === 0) {
-        reportBody.innerHTML = '<tr><td colspan="6" style="color:var(--ink-soft);">इस दौरान कोई एंट्री नहीं है।</td></tr>';
-      }
-      filtered.forEach(e => {
-        totalPaneer += e.paneerCount||0; totalVeg += e.vegCount||0; totalCost += e.totalCost||0;
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${e.date}</td><td class="num">${e.paneerCount||0}</td><td class="num">${e.vegCount||0}</td>
-          <td class="num">${e.totalCount||0}</td><td class="num">${formatMoney(e.totalCost||0)}</td>
-          <td class="num"><button class="danger-link" data-del="${e.date}">हटाएं</button></td>`;
-        reportBody.appendChild(tr);
+      const s = await call("getDaySummary", { date });
+      c.innerHTML = `
+        <div class="card">
+          <h2>आज का हिसाब</h2>
+          <p class="hint">${esc(date)}</p>
+          <div class="stat-grid">
+            <div class="stat"><div class="label">कैश</div><div class="value">${money(s.cash)}</div></div>
+            <div class="stat"><div class="label">ऑनलाइन</div><div class="value">${money(s.online)}</div></div>
+            <div class="stat clay"><div class="label">कुल प्राप्त राशि</div><div class="value">${money(s.totalReceived)}</div></div>
+          </div>
+          <div class="stat-grid">
+            <div class="stat"><div class="label">कुल खर्च</div><div class="value" style="color:var(--clay)">${money(s.totalExpense)}</div></div>
+            <div class="stat" style="background:${s.profitLoss>=0?'var(--green-soft)':'var(--clay-soft)'}">
+              <div class="label">${s.profitLoss>=0 ? "लाभ" : "हानि"}</div>
+              <div class="value" style="color:${s.profitLoss>=0?'var(--green)':'var(--clay)'}">${money(Math.abs(s.profitLoss))}</div>
+            </div>
+          </div>
+          <div class="breakdown-list">
+            <div><span>Daily का सामान</span><span>${money(s.breakdown.daily)}</span></div>
+            <div><span>मोमोज़ बनाने का सामान</span><span>${money(s.breakdown.momosSaaman)}</span></div>
+            <div><span>Packing</span><span>${money(s.breakdown.packing)}</span></div>
+            <div><span>Work Expense</span><span>${money(s.breakdown.workExpense)}</span></div>
+            <div><span>Others</span><span>${money(s.breakdown.others)}</span></div>
+          </div>
+        </div>`;
+    } catch (e) {
+      c.innerHTML = '<div class="card"><p class="muted">लोड नहीं हो पाया। SCRIPT_URL चेक करें।</p></div>';
+    }
+  }
+
+  // ===================================================================
+  // qty सेक्शन (Daily का सामान / मोमोज़ बनाने का सामान / Packing)
+  // ===================================================================
+  async function renderQtySection(section, title) {
+    const date = currentDate();
+    const c = document.getElementById("tabContent");
+    const [masterRes, entriesRes] = await Promise.all([
+      call("getMaster", { section }), call("getEntries", { section, date })
+    ]);
+    const items = (masterRes.items || []).filter(it => it.active);
+    const existing = {};
+    (entriesRes.entries || []).forEach(e => { existing[e.itemId] = e; });
+
+    let rows = items.map(it => {
+      const ex = existing[it.id];
+      return `<tr data-id="${it.id}" data-unit="${esc(it.unit)}">
+        <td class="name-cell">${esc(it.name)}<div class="muted" style="font-size:11px;">${esc(it.unit)}</div></td>
+        <td class="num"><input type="number" class="qty-input" min="0" step="0.01" value="${ex?ex.quantity:''}" placeholder="0"></td>
+        <td class="num"><input type="number" class="rate-input" min="0" step="0.01" value="${ex?ex.rate:''}" placeholder="0"></td>
+        <td class="num row-total">₹0</td>
+      </tr>`;
+    }).join("");
+
+    c.innerHTML = `
+      <div class="card">
+        <h2>${esc(title)}</h2>
+        <p class="hint">${esc(date)} — मात्रा और कीमत डालो, कुल अपने आप बन जाएगा।</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>सामान</th><th class="num">मात्रा</th><th class="num">₹/यूनिट</th><th class="num">कुल ₹</th></tr></thead>
+            <tbody id="qtyBody">${rows || '<tr><td colspan="4" class="muted">कोई सक्रिय आइटम नहीं है।</td></tr>'}</tbody>
+            <tfoot><tr class="total-row"><td colspan="3">कुल</td><td class="num" id="qtyGrandTotal">₹0</td></tr></tfoot>
+          </table>
+        </div>
+        <button class="primary" id="saveQtyBtn">सेव करें</button>
+        <p class="save-status" id="qtyStatus"></p>
+
+        <details class="master-manage">
+          <summary>+ नया सामान जोड़ें / सूची बदलें</summary>
+          <div class="add-form">
+            <input type="text" id="newItemName" placeholder="नाम" class="wide" style="flex:2;">
+            <input type="text" id="newItemUnit" placeholder="यूनिट (किलो/पीस)" style="flex:1;">
+            <button class="secondary" id="addItemBtn">जोड़ें</button>
+          </div>
+          <div id="masterList" style="margin-top:12px;"></div>
+        </details>
+      </div>`;
+
+    function recalcRow(tr) {
+      const qty = parseFloat(tr.querySelector(".qty-input").value) || 0;
+      const rate = parseFloat(tr.querySelector(".rate-input").value) || 0;
+      tr.querySelector(".row-total").textContent = money(qty * rate);
+    }
+    function recalcAll() {
+      let total = 0;
+      document.querySelectorAll("#qtyBody tr[data-id]").forEach(tr => {
+        recalcRow(tr);
+        const qty = parseFloat(tr.querySelector(".qty-input").value) || 0;
+        const rate = parseFloat(tr.querySelector(".rate-input").value) || 0;
+        total += qty * rate;
       });
-      document.getElementById("statPaneer").textContent = totalPaneer.toLocaleString("en-IN");
-      document.getElementById("statVeg").textContent = totalVeg.toLocaleString("en-IN");
-      document.getElementById("statTotal").textContent = (totalPaneer+totalVeg).toLocaleString("en-IN");
-      document.getElementById("statCost").textContent = formatMoney(totalCost);
-      reportBody.querySelectorAll("[data-del]").forEach(btn => {
-        btn.addEventListener("click", async () => {
-          if (!confirm(`${btn.getAttribute("data-del")} की एंट्री हटाएं?`)) return;
-          await jsonp({ action: "delete", date: btn.getAttribute("data-del") });
-          loadReport(currentPeriod);
+      document.getElementById("qtyGrandTotal").textContent = money(total);
+    }
+    document.querySelectorAll("#qtyBody input").forEach(inp => inp.addEventListener("input", recalcAll));
+    recalcAll();
+
+    document.getElementById("saveQtyBtn").addEventListener("click", async () => {
+      const statusEl = document.getElementById("qtyStatus");
+      statusEl.textContent = "सेव हो रहा है…";
+      const entries = [];
+      document.querySelectorAll("#qtyBody tr[data-id]").forEach(tr => {
+        entries.push({
+          itemId: tr.getAttribute("data-id"),
+          itemName: tr.querySelector(".name-cell").childNodes[0].textContent.trim(),
+          quantity: parseFloat(tr.querySelector(".qty-input").value) || 0,
+          unit: tr.getAttribute("data-unit"),
+          rate: parseFloat(tr.querySelector(".rate-input").value) || 0
         });
       });
-    } catch (e) {
-      reportBody.innerHTML = '<tr><td colspan="6" style="color:var(--clay);">रिपोर्ट लोड नहीं हो पाई।</td></tr>';
-    }
+      try {
+        await call("saveEntries", { section, payload: { date, entries } });
+        statusEl.textContent = "✓ सेव हो गया";
+      } catch (e) { statusEl.textContent = "सेव नहीं हो पाया, दोबारा कोशिश करें।"; }
+    });
+
+    renderMasterManage(section, masterRes.items || []);
+    document.getElementById("addItemBtn").addEventListener("click", async () => {
+      const name = document.getElementById("newItemName").value.trim();
+      const unit = document.getElementById("newItemUnit").value.trim();
+      if (!name || !unit) { alert("नाम और यूनिट दोनों भरें"); return; }
+      await call("addMasterItem", { section, payload: { name, unit } });
+      renderActiveTab();
+    });
   }
 
-  document.querySelectorAll(".tabs button").forEach(btn => btn.addEventListener("click", () => loadReport(btn.getAttribute("data-period"))));
+  function renderMasterManage(section, items) {
+    const el = document.getElementById("masterList");
+    if (!el) return;
+    el.innerHTML = items.map(it => `
+      <div class="master-row">
+        <span>${esc(it.name)} <span class="muted">(${esc(it.unit)})</span> ${it.active ? '' : '<span class="muted">— बंद</span>'}</span>
+        <span>
+          <button class="chip ${it.active?'on':''}" data-toggle="${it.id}">${it.active?'सक्रिय':'बंद'}</button>
+          <button class="icon-btn danger" data-del="${it.id}">हटाएं</button>
+        </span>
+      </div>`).join("");
+    el.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", async () => {
+      await call("toggleMasterItem", { section, payload: { id: b.getAttribute("data-toggle") } });
+      renderActiveTab();
+    }));
+    el.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("ये आइटम पूरी तरह हटा दें?")) return;
+      await call("deleteMasterItem", { section, payload: { id: b.getAttribute("data-del") } });
+      renderActiveTab();
+    }));
+  }
 
-  document.getElementById("exportBtn").addEventListener("click", () => {
-    let csv = "date,paneer_momos,veg_momos,total_momos,total_cost\n";
-    allEntries.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(e => {
-      csv += `${e.date},${e.paneerCount||0},${e.vegCount||0},${e.totalCount||0},${(e.totalCost||0).toFixed(2)}\n`;
+  // ===================================================================
+  // Work Expense
+  // ===================================================================
+  async function renderWorkExpense() {
+    const date = currentDate();
+    const c = document.getElementById("tabContent");
+    const [masterRes, entriesRes] = await Promise.all([
+      call("getWorkExpenseItems"), call("getWorkExpense", { date })
+    ]);
+    const items = (masterRes.items || []).filter(it => it.active);
+    const existing = {};
+    (entriesRes.entries || []).forEach(e => { existing[e.itemId] = e; });
+
+    let rows = items.map(it => `
+      <div class="master-row">
+        <span class="name-cell" style="font-weight:600;">${esc(it.name)}</span>
+        <input type="number" class="we-amount" min="0" step="1" data-id="${it.id}" data-name="${esc(it.name)}" value="${existing[it.id]?existing[it.id].amount:''}" placeholder="₹0">
+      </div>`).join("");
+
+    c.innerHTML = `
+      <div class="card">
+        <h2>Work Expense</h2>
+        <p class="hint">${esc(date)} — कमरा, ऑटो, पानी और हर मज़दूर की आज की मज़दूरी।</p>
+        <div id="weList">${rows || '<p class="muted">कोई आइटम नहीं है।</p>'}</div>
+        <div class="total-row" style="display:flex;justify-content:space-between;padding-top:12px;border-top:2px solid var(--ink);margin-top:10px;font-weight:700;">
+          <span>कुल</span><span class="num" id="weTotal">₹0</span>
+        </div>
+        <button class="primary" id="saveWeBtn">सेव करें</button>
+        <p class="save-status" id="weStatus"></p>
+
+        <details class="master-manage">
+          <summary>+ नया नाम जोड़ें (कमरा/ऑटो/मज़दूर वगैरह)</summary>
+          <div class="add-form">
+            <input type="text" id="newWeName" placeholder="नाम" class="wide">
+            <button class="secondary" id="addWeBtn">जोड़ें</button>
+          </div>
+          <div id="weMasterList" style="margin-top:12px;"></div>
+        </details>
+      </div>`;
+
+    function recalc() {
+      let total = 0;
+      document.querySelectorAll(".we-amount").forEach(inp => total += parseFloat(inp.value) || 0);
+      document.getElementById("weTotal").textContent = money(total);
+    }
+    document.querySelectorAll(".we-amount").forEach(inp => inp.addEventListener("input", recalc));
+    recalc();
+
+    document.getElementById("saveWeBtn").addEventListener("click", async () => {
+      const statusEl = document.getElementById("weStatus");
+      statusEl.textContent = "सेव हो रहा है…";
+      const entries = [];
+      document.querySelectorAll(".we-amount").forEach(inp => {
+        entries.push({ itemId: inp.getAttribute("data-id"), itemName: inp.getAttribute("data-name"), amount: parseFloat(inp.value) || 0 });
+      });
+      try { await call("saveWorkExpense", { payload: { date, entries } }); statusEl.textContent = "✓ सेव हो गया"; }
+      catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
     });
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "momos-daily-log.csv"; a.click();
-    URL.revokeObjectURL(url);
-  });
 
-  buildRows();
-  recalcDisplay();
-  loadRatesFromSheet();
-  loadReport("week");
+    const wm = document.getElementById("weMasterList");
+    wm.innerHTML = (masterRes.items || []).map(it => `
+      <div class="master-row">
+        <span>${esc(it.name)} ${it.active?'':'<span class="muted">— बंद</span>'}</span>
+        <span>
+          <button class="chip ${it.active?'on':''}" data-toggle="${it.id}">${it.active?'सक्रिय':'बंद'}</button>
+          <button class="icon-btn danger" data-del="${it.id}">हटाएं</button>
+        </span>
+      </div>`).join("");
+    wm.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", async () => {
+      await call("toggleWorkExpenseItem", { payload: { id: b.getAttribute("data-toggle") } }); renderActiveTab();
+    }));
+    wm.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("हटाएं?")) return;
+      await call("deleteWorkExpenseItem", { payload: { id: b.getAttribute("data-del") } }); renderActiveTab();
+    }));
+    document.getElementById("addWeBtn").addEventListener("click", async () => {
+      const name = document.getElementById("newWeName").value.trim();
+      if (!name) return;
+      await call("addWorkExpenseItem", { payload: { name } });
+      renderActiveTab();
+    });
+  }
+
+  // ===================================================================
+  // Attendance
+  // ===================================================================
+  async function renderAttendance() {
+    const date = currentDate();
+    const c = document.getElementById("tabContent");
+    const [workersRes, attRes] = await Promise.all([call("getWorkers"), call("getAttendance", { date })]);
+    const workers = (workersRes.items || []).filter(w => w.active);
+    const existing = {};
+    (attRes.entries || []).forEach(e => { existing[e.workerId] = e.present; });
+
+    let rows = workers.map(w => `
+      <div class="worker-row" data-id="${w.id}" data-name="${esc(w.name)}">
+        <span class="name">${esc(w.name)}</span>
+        <button class="chip att-toggle ${existing[w.id] ? 'on' : ''}">${existing[w.id] ? 'उपस्थित ✓' : 'अनुपस्थित'}</button>
+      </div>`).join("");
+
+    c.innerHTML = `
+      <div class="card">
+        <h2>Attendance</h2>
+        <p class="hint">${esc(date)} — बटन दबाकर उपस्थिति बदलें। (राशि यहाँ नहीं, Work Expense में डालें)</p>
+        <div id="attList">${rows || '<p class="muted">कोई worker नहीं है।</p>'}</div>
+        <button class="primary" id="saveAttBtn">सेव करें</button>
+        <p class="save-status" id="attStatus"></p>
+
+        <details class="master-manage">
+          <summary>+ नया worker जोड़ें</summary>
+          <div class="add-form">
+            <input type="text" id="newWorkerName" placeholder="नाम" class="wide">
+            <button class="secondary" id="addWorkerBtn">जोड़ें</button>
+          </div>
+          <div id="workerMasterList" style="margin-top:12px;"></div>
+        </details>
+      </div>`;
+
+    document.querySelectorAll(".att-toggle").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const on = btn.classList.toggle("on");
+        btn.textContent = on ? "उपस्थित ✓" : "अनुपस्थित";
+      });
+    });
+
+    document.getElementById("saveAttBtn").addEventListener("click", async () => {
+      const statusEl = document.getElementById("attStatus");
+      statusEl.textContent = "सेव हो रहा है…";
+      const entries = [];
+      document.querySelectorAll(".worker-row").forEach(row => {
+        entries.push({ workerId: row.getAttribute("data-id"), workerName: row.getAttribute("data-name"),
+          present: row.querySelector(".att-toggle").classList.contains("on") });
+      });
+      try { await call("saveAttendance", { payload: { date, entries } }); statusEl.textContent = "✓ सेव हो गया"; }
+      catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
+    });
+
+    const wm = document.getElementById("workerMasterList");
+    wm.innerHTML = (workersRes.items || []).map(w => `
+      <div class="master-row">
+        <span>${esc(w.name)} ${w.active?'':'<span class="muted">— बंद</span>'}</span>
+        <span>
+          <button class="chip ${w.active?'on':''}" data-toggle="${w.id}">${w.active?'सक्रिय':'बंद'}</button>
+          <button class="icon-btn danger" data-del="${w.id}">हटाएं</button>
+        </span>
+      </div>`).join("");
+    wm.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", async () => {
+      await call("toggleWorker", { payload: { id: b.getAttribute("data-toggle") } }); renderActiveTab();
+    }));
+    wm.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("हटाएं?")) return;
+      await call("deleteWorker", { payload: { id: b.getAttribute("data-del") } }); renderActiveTab();
+    }));
+    document.getElementById("addWorkerBtn").addEventListener("click", async () => {
+      const name = document.getElementById("newWorkerName").value.trim();
+      if (!name) return;
+      await call("addWorker", { payload: { name } });
+      renderActiveTab();
+    });
+  }
+
+  // ===================================================================
+  // Others
+  // ===================================================================
+  async function renderOthers() {
+    const date = currentDate();
+    const c = document.getElementById("tabContent");
+    const res = await call("getOthers", { date });
+    const entries = res.entries && res.entries.length ? res.entries : [{ name: "", amount: "" }];
+
+    c.innerHTML = `
+      <div class="card">
+        <h2>Others</h2>
+        <p class="hint">${esc(date)} — कोई भी खर्च जो बाकी सूची में फ़िट न बैठे।</p>
+        <div id="othersRows"></div>
+        <button class="add-row" id="addOthersRow">+ और जोड़ें</button>
+        <div style="display:flex;justify-content:space-between;padding-top:12px;border-top:2px solid var(--ink);margin-top:10px;font-weight:700;">
+          <span>कुल</span><span class="num" id="othersTotal">₹0</span>
+        </div>
+        <button class="primary" id="saveOthersBtn">सेव करें</button>
+        <p class="save-status" id="othersStatus"></p>
+      </div>`;
+
+    const rowsEl = document.getElementById("othersRows");
+    function addRow(name, amount) {
+      const div = document.createElement("div");
+      div.className = "add-form";
+      div.innerHTML = `
+        <input type="text" class="oth-name wide" style="flex:2;" placeholder="नाम" value="${esc(name||'')}">
+        <input type="number" class="oth-amount" style="flex:1;" min="0" step="1" placeholder="₹" value="${amount||''}">
+        <button class="icon-btn danger" title="हटाएं">✕</button>`;
+      div.querySelector("button").addEventListener("click", () => { div.remove(); recalc(); });
+      div.querySelectorAll("input").forEach(inp => inp.addEventListener("input", recalc));
+      rowsEl.appendChild(div);
+    }
+    entries.forEach(e => addRow(e.name, e.amount));
+
+    function recalc() {
+      let total = 0;
+      rowsEl.querySelectorAll(".oth-amount").forEach(inp => total += parseFloat(inp.value) || 0);
+      document.getElementById("othersTotal").textContent = money(total);
+    }
+    recalc();
+
+    document.getElementById("addOthersRow").addEventListener("click", () => addRow("", ""));
+
+    document.getElementById("saveOthersBtn").addEventListener("click", async () => {
+      const statusEl = document.getElementById("othersStatus");
+      statusEl.textContent = "सेव हो रहा है…";
+      const out = [];
+      rowsEl.querySelectorAll(".add-form").forEach(row => {
+        const name = row.querySelector(".oth-name").value.trim();
+        const amount = parseFloat(row.querySelector(".oth-amount").value) || 0;
+        if (name && amount > 0) out.push({ name, amount });
+      });
+      try { await call("saveOthers", { payload: { date, entries: out } }); statusEl.textContent = "✓ सेव हो गया"; }
+      catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
+    });
+  }
+
+  // ===================================================================
+  // मोमोज़ हिसाब (कैलकुलेटर — सिर्फ़ अनुमान/रेफ़रेंस)
+  // ===================================================================
+  const MH_ITEMS = [
+    {key:"maida",name:"मैदा"},{key:"ajinomoto",name:"अजीनोमोटो"},{key:"gobhi",name:"पत्ता गोभी"},
+    {key:"gajar",name:"गाजर"},{key:"piyaj",name:"प्याज"},{key:"dhaniya",name:"धनिया"},
+    {key:"harimirch",name:"हरी मिर्च"},{key:"adrak",name:"अदरक"},{key:"tamatar",name:"टमाटर"},
+    {key:"lalmirch",name:"लाल मिर्च पाउडर"},{key:"nutrala",name:"सोयाबीन नुट्रेला"},{key:"ararot",name:"अरारोट पाउडर"},
+    {key:"namak",name:"नमक"},{key:"oilraggold",name:"तेल (राग गोल्ड)"},{key:"musteroil",name:"सरसों तेल"},
+    {key:"mayo",name:"मेयोनीज़"},{key:"oregano",name:"ओरिगेनो"},{key:"butter",name:"बटर"},
+    {key:"paneer",name:"पनीर"},{key:"lahsun",name:"लहसुन"},{key:"dalda",name:"डालडा"},{key:"lpg",name:"एलपीजी गैस"}
+  ];
+  const MH_BASE_MOMOS = 1200, MH_BASE_PANEER = 615;
+  const MH_GRAMS = {maida:11000,ajinomoto:1000,gobhi:15000,gajar:1500,piyaj:15000,dhaniya:750,harimirch:3000,
+    adrak:3000,tamatar:3000,lalmirch:1000,nutrala:200,ararot:1000,namak:2000,oilraggold:4000,musteroil:1000,
+    mayo:3000,oregano:500,butter:500,paneer:4500,lahsun:4000,dalda:1000,lpg:14000};
+  const MH_PANEER_PER_MOMO = MH_GRAMS.paneer / MH_BASE_PANEER;
+
+  async function renderMomosHisab() {
+    const date = currentDate();
+    const c = document.getElementById("tabContent");
+    const ratesRes = await call("getMomosHisabRates");
+    const rates = ratesRes.rates || {};
+
+    c.innerHTML = `
+      <div class="card">
+        <h2>मोमोज़ हिसाब (अनुमान)</h2>
+        <p class="hint">${esc(date)} — कितने मोमोज़ बने, उसके हिसाब से अनुमानित सामान और लागत। ये सिर्फ़ अंदाज़ा है — असली खर्च ऊपर वाले सेक्शन में दर्ज होता है।</p>
+        <div class="add-form">
+          <label style="min-width:100px;">पनीर मोमोज़</label><input type="number" id="mhPaneer" value="615" min="0" step="1">
+        </div>
+        <div class="add-form">
+          <label style="min-width:100px;">वेज मोमोज़</label><input type="number" id="mhVeg" value="585" min="0" step="1">
+        </div>
+        <div class="table-scroll" style="margin-top:12px;">
+          <table>
+            <thead><tr><th>सामान</th><th class="num">मात्रा</th><th class="num">₹/किलो</th><th class="num">कीमत ₹</th></tr></thead>
+            <tbody id="mhBody"></tbody>
+            <tfoot><tr class="total-row"><td colspan="3">कुल अनुमानित लागत</td><td class="num" id="mhTotal">₹0</td></tr></tfoot>
+          </table>
+        </div>
+        <button class="primary" id="mhSaveBtn">इस तारीख के लिए सेव करें</button>
+        <p class="save-status" id="mhStatus"></p>
+      </div>`;
+
+    const tbody = document.getElementById("mhBody");
+    tbody.innerHTML = MH_ITEMS.map(it => `
+      <tr data-key="${it.key}">
+        <td class="name-cell">${esc(it.name)}</td>
+        <td class="num" data-qty>—</td>
+        <td class="num"><input type="number" class="mh-rate" data-key="${it.key}" min="0" step="0.01" value="${rates[it.key]||''}" placeholder="0"></td>
+        <td class="num" data-cost>₹0</td>
+      </tr>`).join("");
+
+    function recalc() {
+      const paneer = parseInt(document.getElementById("mhPaneer").value,10) || 0;
+      const veg = parseInt(document.getElementById("mhVeg").value,10) || 0;
+      const total = paneer + veg;
+      const factor = total / MH_BASE_MOMOS;
+      let grand = 0;
+      MH_ITEMS.forEach(it => {
+        const grams = it.key === "paneer" ? MH_PANEER_PER_MOMO * paneer : MH_GRAMS[it.key] * factor;
+        const rate = rates[it.key] || 0;
+        const cost = (grams/1000) * rate;
+        grand += cost;
+        const tr = tbody.querySelector(`tr[data-key="${it.key}"]`);
+        tr.querySelector("[data-qty]").textContent = grams>=1000 ? (grams/1000).toFixed(2)+" किग्रा" : Math.round(grams)+" ग्राम";
+        tr.querySelector("[data-cost]").textContent = money(cost);
+      });
+      document.getElementById("mhTotal").textContent = money(grand);
+    }
+    document.getElementById("mhPaneer").addEventListener("input", recalc);
+    document.getElementById("mhVeg").addEventListener("input", recalc);
+    tbody.querySelectorAll(".mh-rate").forEach(inp => {
+      let t = null;
+      inp.addEventListener("input", () => {
+        rates[inp.getAttribute("data-key")] = parseFloat(inp.value) || 0;
+        recalc();
+        clearTimeout(t);
+        t = setTimeout(() => call("saveMomosHisabRate", { payload: { key: inp.getAttribute("data-key"), value: rates[inp.getAttribute("data-key")] } }), 600);
+      });
+    });
+    recalc();
+
+    document.getElementById("mhSaveBtn").addEventListener("click", async () => {
+      const statusEl = document.getElementById("mhStatus");
+      statusEl.textContent = "सेव हो रहा है…";
+      const paneer = parseInt(document.getElementById("mhPaneer").value,10) || 0;
+      const veg = parseInt(document.getElementById("mhVeg").value,10) || 0;
+      try {
+        await call("saveMomosHisabEntry", { payload: { date, paneerCount: paneer, vegCount: veg } });
+        statusEl.textContent = "✓ सेव हो गया";
+      } catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
+    });
+  }
+
+  renderActiveTab();
 </script>
 </body>
 </html>
