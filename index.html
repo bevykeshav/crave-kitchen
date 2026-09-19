@@ -183,6 +183,12 @@
   function withTimeout(p, ms) {
     return Promise.race([p, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   }
+  // सामान का ₹/यूनिट एक बार डालने के बाद हर दिन वही रहे (बदलने तक)
+  function itemRateKey(section, id) { return "rate_" + section + "_" + id; }
+  function persistItemRate(section, id, value) {
+    try { localStorage.setItem("crave_" + itemRateKey(section, id), String(value)); } catch (e) {}
+    call("saveMomosHisabRate", { payload: { key: itemRateKey(section, id), value } }).catch(() => {});
+  }
 
   document.getElementById("mainDate").value = todayStr();
   document.getElementById("mainDate").addEventListener("change", () => { renderActiveTab(); loadPayment(); onDateChange(); });
@@ -431,19 +437,33 @@
   async function renderQtySection(section, title) {
     const date = currentDate();
     const c = document.getElementById("tabContent");
-    const [masterRes, entriesRes] = await Promise.all([
-      call("getMaster", { section }), call("getEntries", { section, date })
+    const [masterRes, entriesRes, ratesRes] = await Promise.all([
+      call("getMaster", { section }), call("getEntries", { section, date }), safeCall("getMomosHisabRates")
     ]);
     const items = (masterRes.items || []).filter(it => it.active);
     const existing = {};
     (entriesRes.entries || []).forEach(e => { existing[e.itemId] = e; });
 
+    // ₹/यूनिट हर दिन बना रहता है; मात्रा हर तारीख की अलग होती है (नई तारीख पर खाली)
+    const savedRates = (ratesRes && ratesRes.rates) || {};
+    const persistedRate = id => {
+      const v = Number(savedRates[itemRateKey(section, id)]);
+      if (v > 0) return v;
+      try {
+        const l = Number(localStorage.getItem("crave_" + itemRateKey(section, id)));
+        if (l > 0) return l;
+      } catch (e) {}
+      return "";
+    };
+    const rememberRate = (id, value) => { savedRates[itemRateKey(section, id)] = value; persistItemRate(section, id, value); };
+
     let rows = items.map(it => {
       const ex = existing[it.id];
+      const rateVal = (ex && Number(ex.rate) > 0) ? ex.rate : persistedRate(it.id);
       return `<tr data-id="${it.id}" data-unit="${esc(it.unit)}">
         <td class="name-cell">${esc(it.name)}<div class="muted" style="font-size:11px;">${esc(it.unit)}</div></td>
         <td class="num"><input type="number" class="qty-input" min="0" step="0.01" value="${ex?ex.quantity:''}" placeholder="0"></td>
-        <td class="num"><input type="number" class="rate-input" min="0" step="0.01" value="${ex?ex.rate:''}" placeholder="0"></td>
+        <td class="num"><input type="number" class="rate-input" min="0" step="0.01" value="${rateVal}" placeholder="0"></td>
         <td class="num row-total">₹0</td>
       </tr>`;
     }).join("");
@@ -489,6 +509,14 @@
       document.getElementById("qtyGrandTotal").textContent = money(total);
     }
     document.querySelectorAll("#qtyBody input").forEach(inp => inp.addEventListener("input", recalcAll));
+    document.querySelectorAll("#qtyBody .rate-input").forEach(inp => {
+      const id = inp.closest("tr").getAttribute("data-id");
+      let t = null;
+      inp.addEventListener("input", () => {
+        clearTimeout(t);
+        t = setTimeout(() => rememberRate(id, parseFloat(inp.value) || 0), 600);
+      });
+    });
     recalcAll();
 
     document.getElementById("saveQtyBtn").addEventListener("click", async () => {
@@ -506,6 +534,9 @@
       });
       try {
         await call("saveEntries", { section, payload: { date, entries } });
+        entries.forEach(e => {
+          if (e.rate > 0 && Number(persistedRate(e.itemId)) !== e.rate) rememberRate(e.itemId, e.rate);
+        });
         statusEl.textContent = "✓ सेव हो गया";
       } catch (e) { statusEl.textContent = "सेव नहीं हो पाया, दोबारा कोशिश करें।"; }
     });
