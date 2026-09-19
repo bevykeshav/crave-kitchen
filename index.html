@@ -193,6 +193,15 @@
   // ऊपर हेडर में लाभ / हानि — हर टैब में दिखता है
   // ===================================================================
   let dayCache = null;   // { date, rates, expenseLines, missing, totalExpense, counts }
+  let paymentLoadedFor = null;   // kis तारीख का कैश/ऑनलाइन ऊपर के बॉक्स में है
+
+  // लाभ / हानि = (कैश + ऑनलाइन) − कुल खर्च
+  function computePL() {
+    const date = currentDate();
+    if (!dayCache || dayCache.date !== date || paymentLoadedFor !== date) return null;
+    const received = receivedNow();
+    return { received, expense: dayCache.totalExpense, pl: received - dayCache.totalExpense };
+  }
   let headerSeq = 0;
   let headerTimer = null;
 
@@ -202,7 +211,7 @@
   }
 
   // एक तारीख का सारा डेटा: खर्च (5 सेक्शन), प्लेट रेट, और मोमोज़ की गिनती
-  async function loadDayData(date) {
+  async function loadDayData(date, withCounts) {
     const [ratesRes, dailyRes, momosRes, packRes, weRes, othRes, entryRes] = await Promise.all([
       safeCall("getMomosHisabRates"),
       safeCall("getEntries", { section: "daily", date }),
@@ -210,7 +219,7 @@
       safeCall("getEntries", { section: "packing", date }),
       safeCall("getWorkExpense", { date }),
       safeCall("getOthers", { date }),
-      withTimeout(safeCall("getMomosHisabEntry", { date }), 5000)
+      withCounts ? withTimeout(safeCall("getMomosHisabEntry", { date }), 5000) : null
     ]);
     const rates = (ratesRes && ratesRes.rates) || {};
 
@@ -249,7 +258,7 @@
   async function refreshHeader() {
     const date = currentDate();
     const seq = ++headerSeq;
-    const data = await loadDayData(date);
+    const data = await loadDayData(date, false);
     if (seq !== headerSeq || date !== currentDate()) return;
     applyDayData(date, data);
   }
@@ -260,6 +269,7 @@
   function onDateChange() {
     headerSeq++;
     dayCache = null;
+    paymentLoadedFor = null;
     updateHeader();
     if (activeTab !== "momoshisab") refreshHeader();
   }
@@ -271,29 +281,21 @@
     const value = box.querySelector(".pl-value");
     const sub = box.querySelector(".pl-sub");
     const date = currentDate();
-    const d = dayCache;
     box.classList.remove("loss");
-    if (!d || d.date !== date) {
+    const r = computePL();
+    if (!r) {
       label.textContent = "लाभ / हानि"; value.textContent = "…"; sub.textContent = "";
       return;
     }
     const dayWord = date === todayStr() ? "आज" : date.slice(8, 10) + "/" + date.slice(5, 7);
-    if (!d.counts) {
-      label.textContent = dayWord + " का लाभ / हानि";
-      value.textContent = "—";
-      sub.textContent = "मोमोज़ की गिनती डालो";
-      return;
-    }
-    const sales = (d.counts.paneer / PIECES_PER_PLATE) * plateRateFrom(d.rates, "paneer")
-                + (d.counts.veg / PIECES_PER_PLATE) * plateRateFrom(d.rates, "veg");
-    const pl = sales - d.totalExpense;
-    const isLoss = pl < 0;
+    const isLoss = r.pl < 0;
     label.textContent = dayWord + (isLoss ? " की हानि" : " का लाभ");
-    value.textContent = money(Math.abs(pl));
-    sub.textContent = d.missing.length ? "⚠ खर्च अधूरा हो सकता है" : "";
+    value.textContent = money(Math.abs(r.pl));
+    sub.textContent = dayCache.missing.length ? "⚠ खर्च अधूरा हो सकता है" : "";
     box.classList.toggle("loss", isLoss);
   }
 
+  // ---------- tabs ----------
   // ---------- tabs ----------
   let activeTab = "daily";
   document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -327,6 +329,7 @@
       const p = await call("getPayment", { date });
       document.getElementById("cashInput").value = p.cash || "";
       document.getElementById("onlineInput").value = p.online || "";
+      paymentLoadedFor = date;
       refreshReceived();
     } catch (e) { /* चुप रहो, save karte waqt फिर कोशिश होगी */ }
   }
@@ -348,21 +351,45 @@
   }
   document.getElementById("cashInput").addEventListener("input", schedulePaymentSave);
   document.getElementById("onlineInput").addEventListener("input", schedulePaymentSave);
-  document.getElementById("cashInput").addEventListener("input", refreshReceived);
-  document.getElementById("onlineInput").addEventListener("input", refreshReceived);
+  function onPaymentTyped() { paymentLoadedFor = currentDate(); refreshReceived(); }
+  document.getElementById("cashInput").addEventListener("input", onPaymentTyped);
+  document.getElementById("onlineInput").addEventListener("input", onPaymentTyped);
   loadPayment();
 
-  // "रोज़ का हिसाब" टैब में नीचे "मिली रकम" वाली लाइनें — सिर्फ़ रेफ़रेंस के लिए
+  // कैश + ऑनलाइन = कुल बिक्री। इससे हेडर और "रोज़ का हिसाब" टैब का लाभ/हानि बनता है
+  function receivedNow() {
+    return (parseFloat(document.getElementById("cashInput").value) || 0)
+         + (parseFloat(document.getElementById("onlineInput").value) || 0);
+  }
   function refreshReceived() {
-    const el = document.getElementById("recvLine");
-    if (!el) return;
     const cash = parseFloat(document.getElementById("cashInput").value) || 0;
     const online = parseFloat(document.getElementById("onlineInput").value) || 0;
-    el.innerHTML = `
-      <div class="strong"><span>मिली रकम (रेफ़रेंस)</span><span></span></div>
-      <div><span>कैश</span><span>${money(cash)}</span></div>
-      <div><span>ऑनलाइन</span><span>${money(online)}</span></div>
-      <div class="strong"><span>कुल मिला</span><span>${money(cash + online)}</span></div>`;
+
+    const el = document.getElementById("recvLine");
+    if (el) {
+      el.innerHTML = `
+        <div class="strong"><span>कुल बिक्री का ब्योरा</span><span></span></div>
+        <div><span>कैश</span><span>${money(cash)}</span></div>
+        <div><span>ऑनलाइन</span><span>${money(online)}</span></div>
+        <div class="strong"><span>कुल बिक्री</span><span>${money(cash + online)}</span></div>`;
+    }
+
+    const salesEl = document.getElementById("dhSales");
+    if (salesEl) {
+      const r = computePL();
+      if (!r) {
+        salesEl.textContent = "…";
+        document.getElementById("dhPL").textContent = "…";
+      } else {
+        const isLoss = r.pl < 0;
+        salesEl.textContent = money(r.received);
+        document.getElementById("dhExpense").textContent = money(r.expense);
+        document.getElementById("dhPLLabel").textContent = isLoss ? "हानि" : "लाभ";
+        document.getElementById("dhPL").textContent = money(Math.abs(r.pl));
+        document.getElementById("dhPLBox").classList.toggle("clay", isLoss);
+      }
+    }
+    updateHeader();
   }
 
   // ===================================================================
@@ -730,7 +757,7 @@
     const c = document.getElementById("tabContent");
 
     // बाकी सब टैब्स का खर्च, प्लेट रेट और गिनती — उसी तारीख के लिए
-    const data = await loadDayData(date);
+    const data = await loadDayData(date, true);
     // इस बीच टैब/तारीख बदल गई हो तो पुराना नतीजा मत दिखाओ
     if (activeTab !== "momoshisab" || date !== currentDate()) return;
     applyDayData(date, data);
@@ -744,7 +771,7 @@
     c.innerHTML = `
       <div class="card">
         <h2>रोज़ का हिसाब</h2>
-        <p class="hint">${esc(date)} — कुल बिक्री − कुल खर्च = लाभ / हानि।</p>
+        <p class="hint">${esc(date)} — कुल बिक्री (कैश + ऑनलाइन) − कुल खर्च = लाभ / हानि।</p>
         <div class="stat-grid">
           <div class="stat"><div class="label">कुल बिक्री</div><div class="value" id="dhSales">₹0</div></div>
           <div class="stat clay"><div class="label">कुल खर्च</div><div class="value" id="dhExpense">${money(totalExpense)}</div></div>
@@ -755,8 +782,8 @@
       </div>
 
       <div class="card">
-        <h2>आज की बिक्री</h2>
-        <p class="hint">कितने मोमोज़ बने (पीस) डालो — 1 प्लेट = ${PIECES_PER_PLATE} पीस। प्लेट का रेट भी यहीं बदल सकते हो।</p>
+        <h2>अनुमानित बिक्री (प्लेट के हिसाब से)</h2>
+        <p class="hint">सिर्फ़ अंदाज़े के लिए — लाभ/हानि में नहीं जुड़ती, वो कैश + ऑनलाइन से बनता है। कितने मोमोज़ बने (पीस) डालो — 1 प्लेट = ${PIECES_PER_PLATE} पीस।</p>
         <div class="table-scroll">
           <table>
             <thead><tr><th>मोमोज़</th><th class="num">बने (पीस)</th><th class="num">प्लेट</th><th class="num">₹/प्लेट</th><th class="num">बिक्री ₹</th></tr></thead>
@@ -776,7 +803,7 @@
                 <td class="num" id="plVegSales">₹0</td>
               </tr>
             </tbody>
-            <tfoot><tr class="total-row"><td colspan="4">कुल बिक्री</td><td class="num" id="plSalesTotal">₹0</td></tr></tfoot>
+            <tfoot><tr class="total-row"><td colspan="4">अनुमानित बिक्री</td><td class="num" id="plSalesTotal">₹0</td></tr></tfoot>
           </table>
         </div>
         <button class="primary" id="mhSaveBtn">इस तारीख की गिनती सेव करें</button>
@@ -826,29 +853,21 @@
       const paneerRate = parseFloat(document.getElementById("plPaneer").value) || 0;
       const vegRate = parseFloat(document.getElementById("plVeg").value) || 0;
 
-      // हेडर वाला लाभ/हानि भी साथ-साथ बदले
+      // गिनती और प्लेट रेट याद रखो (टैब बदलकर लौटने पर बने रहें)
       if (fromUser === true || dayCache.counts) dayCache.counts = { paneer, veg };
       dayCache.rates.plate_paneer = paneerRate;
       dayCache.rates.plate_veg = vegRate;
-      updateHeader();
 
-      // कुल बिक्री = (पनीर ÷ 10) × पनीर रेट + (वेज ÷ 10) × वेज रेट
+      // अनुमानित बिक्री = (पनीर ÷ 10) × पनीर रेट + (वेज ÷ 10) × वेज रेट
       const paneerSales = (paneer / PIECES_PER_PLATE) * paneerRate;
       const vegSales = (veg / PIECES_PER_PLATE) * vegRate;
       const sales = paneerSales + vegSales;
-      const pl = sales - totalExpense;
 
       document.getElementById("plPaneerPlates").textContent = fmtPlates(paneer);
       document.getElementById("plVegPlates").textContent = fmtPlates(veg);
       document.getElementById("plPaneerSales").textContent = money(paneerSales);
       document.getElementById("plVegSales").textContent = money(vegSales);
       document.getElementById("plSalesTotal").textContent = money(sales);
-
-      document.getElementById("dhSales").textContent = money(sales);
-      const isLoss = pl < 0;
-      document.getElementById("dhPLLabel").textContent = isLoss ? "हानि" : "लाभ";
-      document.getElementById("dhPL").textContent = money(Math.abs(pl));
-      document.getElementById("dhPLBox").classList.toggle("clay", isLoss);
 
       // सामान का अनुमान (रेफ़रेंस)
       const factor = (paneer + veg) / MH_BASE_MOMOS;
