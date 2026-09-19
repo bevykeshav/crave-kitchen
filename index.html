@@ -77,9 +77,11 @@
     width:100%; margin-top:8px; }
   button.icon-btn { background:none; border:none; color:var(--ink-soft); font-size:16px; cursor:pointer; padding:2px 6px; }
   button.icon-btn.danger { color:var(--clay); }
-  button.chip { font-size:12px; padding:4px 10px; border-radius:14px; border:1px solid var(--line);
+  button.chip { font-size:12px; padding:5px 12px; border-radius:14px; border:1px solid var(--line);
     background:var(--paper); color:var(--ink-soft); cursor:pointer; }
   button.chip.on { background:var(--green); color:#fff; border-color:var(--green); }
+  button.chip.on.absent { background:var(--clay); border-color:var(--clay); }
+  .att-pair { display:flex; gap:6px; }
 
   .save-status { font-size:12.5px; color:var(--green); margin-top:8px; min-height:16px; }
 
@@ -319,7 +321,6 @@
     box.classList.toggle("loss", isLoss);
   }
 
-  // ---------- tabs ----------
   // ---------- tabs ----------
   let activeTab = "daily";
   document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -657,7 +658,7 @@
   }
 
   // ===================================================================
-  // Attendance
+  // Attendance — Present / Absent दो अलग बटन (टॉगल नहीं)
   // ===================================================================
   async function renderAttendance() {
     const date = currentDate();
@@ -667,16 +668,23 @@
     const existing = {};
     (attRes.entries || []).forEach(e => { existing[e.workerId] = e.present; });
 
-    let rows = workers.map(w => `
+    // डिफ़ॉल्ट: Absent (जब तक साफ़ तौर पर Present न मारा हो)
+    let rows = workers.map(w => {
+      const isPresent = existing[w.id] === true;
+      return `
       <div class="worker-row" data-id="${w.id}" data-name="${esc(w.name)}">
         <span class="name">${esc(w.name)}</span>
-        <button class="chip att-toggle ${existing[w.id] ? 'on' : ''}">${existing[w.id] ? 'उपस्थित ✓' : 'अनुपस्थित'}</button>
-      </div>`).join("");
+        <span class="att-pair">
+          <button class="chip att-present ${isPresent ? 'on' : ''}">Present</button>
+          <button class="chip att-absent ${isPresent ? '' : 'on absent'}">Absent</button>
+        </span>
+      </div>`;
+    }).join("");
 
     c.innerHTML = `
       <div class="card">
         <h2>Attendance</h2>
-        <p class="hint">${esc(date)} — बटन दबाकर उपस्थिति बदलें। (राशि यहाँ नहीं, Work Expense में डालें)</p>
+        <p class="hint">${esc(date)} — Present / Absent चुनें। (राशि यहाँ नहीं, Work Expense में डालें)</p>
         <div id="attList">${rows || '<p class="muted">कोई worker नहीं है।</p>'}</div>
         <button class="primary" id="saveAttBtn">सेव करें</button>
         <p class="save-status" id="attStatus"></p>
@@ -691,10 +699,14 @@
         </details>
       </div>`;
 
-    document.querySelectorAll(".att-toggle").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const on = btn.classList.toggle("on");
-        btn.textContent = on ? "उपस्थित ✓" : "अनुपस्थित";
+    document.querySelectorAll(".worker-row").forEach(row => {
+      const presentBtn = row.querySelector(".att-present");
+      const absentBtn = row.querySelector(".att-absent");
+      presentBtn.addEventListener("click", () => {
+        presentBtn.classList.add("on"); absentBtn.classList.remove("on", "absent");
+      });
+      absentBtn.addEventListener("click", () => {
+        absentBtn.classList.add("on", "absent"); presentBtn.classList.remove("on");
       });
     });
 
@@ -704,7 +716,7 @@
       const entries = [];
       document.querySelectorAll(".worker-row").forEach(row => {
         entries.push({ workerId: row.getAttribute("data-id"), workerName: row.getAttribute("data-name"),
-          present: row.querySelector(".att-toggle").classList.contains("on") });
+          present: row.querySelector(".att-present").classList.contains("on") });
       });
       try { await call("saveAttendance", { payload: { date, entries } }); statusEl.textContent = "✓ सेव हो गया"; }
       catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
@@ -844,6 +856,7 @@
         <p class="warn" id="dhCountHint"></p>
         ${missing.length ? `<p class="warn">⚠ ये लोड नहीं हो पाए, खर्च अधूरा हो सकता है: ${esc(missing.join(", "))}</p>` : ''}
         <div class="breakdown-list" id="recvLine"></div>
+        <button class="secondary" id="shareWhatsappBtn" style="margin-top:12px;width:100%;">📤 WhatsApp पर रिपोर्ट भेजें</button>
       </div>
 
       <div class="card">
@@ -871,7 +884,6 @@
             <tfoot><tr class="total-row"><td colspan="4">मोमोज़ की कुल कीमत</td><td class="num" id="plSalesTotal">₹0</td></tr></tfoot>
           </table>
         </div>
-        <button class="primary" id="mhSaveBtn">इस तारीख की गिनती सेव करें</button>
         <p class="save-status" id="mhStatus"></p>
         <p class="save-status" id="plStatus"></p>
       </div>
@@ -951,8 +963,60 @@
       document.getElementById("mhTotal").textContent = money(grand);
     }
 
-    document.getElementById("mhPaneer").addEventListener("input", () => recalc(true));
-    document.getElementById("mhVeg").addEventListener("input", () => recalc(true));
+    let mhSaveTimer = null;
+    function autoSaveCounts() {
+      const statusEl = document.getElementById("mhStatus");
+      statusEl.textContent = "सेव हो रहा है…";
+      clearTimeout(mhSaveTimer);
+      mhSaveTimer = setTimeout(async () => {
+        const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
+        const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
+        try {
+          await call("saveMomosHisabEntry", { payload: { date, paneerCount: paneer, vegCount: veg } });
+          statusEl.textContent = "✓ सेव हो गया";
+        } catch (e) { statusEl.textContent = "सेव नहीं हो पाया, फिर कोशिश करें।"; }
+      }, 700);
+    }
+    document.getElementById("mhPaneer").addEventListener("input", () => { recalc(true); autoSaveCounts(); });
+    document.getElementById("mhVeg").addEventListener("input", () => { recalc(true); autoSaveCounts(); });
+
+    function buildReportText() {
+      const r = computePL();
+      const cash = parseFloat(document.getElementById("cashInput").value) || 0;
+      const online = parseFloat(document.getElementById("onlineInput").value) || 0;
+      const lines = [];
+      lines.push("📋 Crave Kitchen — रोज़ का हिसाब");
+      lines.push(date);
+      lines.push("");
+      lines.push("बिक्री:");
+      lines.push("कैश: ₹" + cash.toLocaleString("en-IN"));
+      lines.push("ऑनलाइन: ₹" + online.toLocaleString("en-IN"));
+      lines.push("कुल बिक्री: ₹" + (cash + online).toLocaleString("en-IN"));
+      lines.push("");
+      lines.push("खर्च:");
+      dayCache.expenseLines.forEach(x => {
+        lines.push(x.label + ": " + (x.v === null ? "—" : "₹" + Math.round(x.v).toLocaleString("en-IN")));
+      });
+      const momosCost = momosCostFor(dayCache);
+      lines.push("मोमोज़ (प्लेट रेट): " + (momosCost === null ? "—" : "₹" + Math.round(momosCost).toLocaleString("en-IN")));
+      if (r && r.expense !== null) lines.push("कुल खर्च: ₹" + Math.round(r.expense).toLocaleString("en-IN"));
+      lines.push("");
+      if (r && r.pl !== null) {
+        const isLoss = r.pl < 0;
+        lines.push((isLoss ? "हानि" : "लाभ") + ": ₹" + Math.round(Math.abs(r.pl)).toLocaleString("en-IN"));
+      } else {
+        lines.push("लाभ/हानि: मोमोज़ की गिनती डालें");
+      }
+      return lines.join("\n");
+    }
+
+    document.getElementById("shareWhatsappBtn").addEventListener("click", async () => {
+      const text = buildReportText();
+      if (navigator.share) {
+        try { await navigator.share({ text }); return; } catch (e) { /* user cancelled ya unsupported, नीचे fallback */ }
+      }
+      window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
+    });
 
     // प्लेट का रेट बदलो तो backend में अपने-आप सेव
     [["plPaneer", "paneer"], ["plVeg", "veg"]].forEach(([id, kind]) => {
@@ -984,17 +1048,6 @@
 
     recalc();
     refreshReceived();
-
-    document.getElementById("mhSaveBtn").addEventListener("click", async () => {
-      const statusEl = document.getElementById("mhStatus");
-      statusEl.textContent = "सेव हो रहा है…";
-      const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
-      const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
-      try {
-        await call("saveMomosHisabEntry", { payload: { date, paneerCount: paneer, vegCount: veg } });
-        statusEl.textContent = "✓ सेव हो गया";
-      } catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
-    });
   }
 
   renderActiveTab();
