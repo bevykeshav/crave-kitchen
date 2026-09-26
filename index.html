@@ -185,6 +185,13 @@
   function withTimeout(p, ms) {
     return Promise.race([p, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   }
+  // कोई भी tab लोड होते वक़्त fail हो जाए तो हमेशा के लिए "लोड हो रहा है" पर मत अटको —
+  // साफ़ error + दोबारा कोशिश करने का बटन दिखाओ
+  function showLoadError(container) {
+    container.innerHTML = `<div class="card"><p class="warn">⚠ लोड नहीं हो पाया (नेटवर्क या सर्वर की दिक्कत)।</p>
+      <button class="secondary" id="loadRetryBtn">फिर कोशिश करें</button></div>`;
+    document.getElementById("loadRetryBtn").addEventListener("click", () => renderActiveTab());
+  }
   // सामान का ₹/यूनिट एक बार डालने के बाद हर दिन वही रहे (बदलने तक)
   function itemRateKey(section, id) { return "rate_" + section + "_" + id; }
   function persistItemRate(section, id, value) {
@@ -437,9 +444,15 @@
   async function renderQtySection(section, title) {
     const date = currentDate();
     const c = document.getElementById("tabContent");
-    const [masterRes, entriesRes, ratesRes] = await Promise.all([
-      call("getMaster", { section }), call("getEntries", { section, date }), safeCall("getMomosHisabRates")
-    ]);
+    let masterRes, entriesRes, ratesRes;
+    try {
+      [masterRes, entriesRes, ratesRes] = await Promise.all([
+        call("getMaster", { section }), call("getEntries", { section, date }), safeCall("getMomosHisabRates")
+      ]);
+    } catch (e) {
+      showLoadError(c);
+      return;
+    }
     const items = (masterRes.items || []).filter(it => it.active);
     const existing = {};
     (entriesRes.entries || []).forEach(e => { existing[e.itemId] = e; });
@@ -579,9 +592,12 @@
   async function renderWorkExpense() {
     const date = currentDate();
     const c = document.getElementById("tabContent");
-    const [masterRes, entriesRes] = await Promise.all([
-      call("getWorkExpenseItems"), call("getWorkExpense", { date })
-    ]);
+    let masterRes, entriesRes;
+    try {
+      [masterRes, entriesRes] = await Promise.all([
+        call("getWorkExpenseItems"), call("getWorkExpense", { date })
+      ]);
+    } catch (e) { showLoadError(c); return; }
     const items = (masterRes.items || []).filter(it => it.active);
     const existing = {};
     (entriesRes.entries || []).forEach(e => { existing[e.itemId] = e; });
@@ -662,7 +678,10 @@
   async function renderAttendance() {
     const date = currentDate();
     const c = document.getElementById("tabContent");
-    const [workersRes, attRes] = await Promise.all([call("getWorkers"), call("getAttendance", { date })]);
+    let workersRes, attRes;
+    try {
+      [workersRes, attRes] = await Promise.all([call("getWorkers"), call("getAttendance", { date })]);
+    } catch (e) { showLoadError(c); return; }
     const workers = (workersRes.items || []).filter(w => w.active);
     const existing = {};
     (attRes.entries || []).forEach(e => { existing[e.workerId] = e.present; });
@@ -751,7 +770,8 @@
   async function renderOthers() {
     const date = currentDate();
     const c = document.getElementById("tabContent");
-    const res = await call("getOthers", { date });
+    let res;
+    try { res = await call("getOthers", { date }); } catch (e) { showLoadError(c); return; }
     const entries = res.entries && res.entries.length ? res.entries : [{ name: "", amount: "" }];
 
     c.innerHTML = `
