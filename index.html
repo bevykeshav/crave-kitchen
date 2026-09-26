@@ -208,7 +208,13 @@
   }
 
   document.getElementById("mainDate").value = todayStr();
-  document.getElementById("mainDate").addEventListener("change", () => { renderActiveTab(); loadPayment(); onDateChange(); });
+  document.getElementById("mainDate").addEventListener("change", () => {
+    // पहले date/cache बदलो, फिर उसी नई तारीख पर tab/payment load करो।
+    // पुरानी तारीख का render पहले चलाने से duplicate requests और गलत data दिखता था।
+    onDateChange();
+    renderActiveTab();
+    loadPayment();
+  });
 
   function currentDate() { return document.getElementById("mainDate").value || todayStr(); }
 
@@ -247,12 +253,12 @@
 
   // एक तारीख का सारा डेटा: खर्च (5 सेक्शन), प्लेट रेट, और मोमोज़ की गिनती
   async function loadDayData(date, withCounts) {
-    const [summaryRes, ratesRes, entryRes] = await Promise.all([
-      safeCall("getDaySummary", { date }),
-      safeCall("getMomosHisabRates"),
-      withCounts ? withTimeout(safeCall("getMomosHisabEntry", { date }), 15000) : null
-    ]);
-    const rates = (ratesRes && ratesRes.rates) || {};
+    // पहले 3 अलग Apps Script requests होती थीं। अब summary + rates + count
+    // एक ही backend request में आते हैं, इसलिए header काफी जल्दी खुलता है।
+    const result = await withTimeout(safeCall("getDayData", { date, withCounts: withCounts !== false }), 15000);
+    const summaryRes = result && result.summary;
+    const rates = (result && result.rates) || {};
+    const entryRes = result && result.entry;
 
     // कुल खर्च = Daily + मोमोज़ सामान + Packing + Work Expense + Others (एक ही backend call से)
     const labelKeys = [
@@ -274,7 +280,7 @@
     // 0 नहीं मान लेगा — "loadFailed" अलग से बताता है कि ये असल में 0 है या सिर्फ़ लोड नहीं हो पाया)
     let counts = null;
     let loadFailed = !!withCounts;
-    const saved = entryRes && (entryRes.entry || entryRes);
+    const saved = entryRes;
     if (saved && (saved.paneerCount !== undefined || saved.vegCount !== undefined)) {
       counts = { paneer: Number(saved.paneerCount) || 0, veg: Number(saved.vegCount) || 0 };
       loadFailed = false;
