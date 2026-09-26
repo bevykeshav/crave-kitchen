@@ -85,6 +85,7 @@
   .att-pair { display:flex; gap:6px; }
 
   .save-status { font-size:12.5px; color:var(--green); margin-top:8px; min-height:16px; }
+  .save-status.err { color:var(--clay); }
 
   .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:8px; }
   .stat { background:var(--green-soft); border-radius:8px; padding:12px; text-align:center; }
@@ -172,14 +173,20 @@
       document.body.appendChild(script);
     });
   }
-  function call(action, extra) {
+  // backend कभी-कभी { ok:false, error: "..." } के साथ भी "सफलतापूर्वक" जवाब देता है
+  // (जैसे "सर्वर व्यस्त है") — उसे भी असल में एक failure माना जाए, चुपचाप success मत दिखाओ
+  async function call(action, extra) {
     const params = Object.assign({ action }, extra || {});
     if (params.payload) params.payload = JSON.stringify(params.payload);
-    const p = jsonp(params);
-    if (/^(save|add|delete|toggle)/.test(action) && action !== "savePayment" && action !== "saveMomosHisabRate") {
-      p.then(scheduleHeaderRefresh, () => {});
+    const result = await jsonp(params);
+    if (/^(save|add|update|toggle|delete)/.test(action) && result && result.ok === false) {
+      scheduleHeaderRefresh();
+      throw new Error(result.error || "सेव नहीं हो पाया");
     }
-    return p;
+    if (/^(save|add|delete|toggle)/.test(action) && action !== "savePayment" && action !== "saveMomosHisabRate") {
+      scheduleHeaderRefresh();
+    }
+    return result;
   }
   // fail hone par null deta hai (error throw nahi karta)
   function safeCall(action, extra) { return call(action, extra).catch(() => null); }
@@ -378,10 +385,11 @@
       const cash = parseFloat(document.getElementById("cashInput").value) || 0;
       const online = parseFloat(document.getElementById("onlineInput").value) || 0;
       statusEl.textContent = "सेव हो रहा है…";
+      statusEl.classList.remove("err");
       try {
         await call("savePayment", { payload: { date, cash, online } });
         statusEl.textContent = "✓ सेव हो गया";
-      } catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
+      } catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
     }, 600);
   }
   document.getElementById("cashInput").addEventListener("input", schedulePaymentSave);
@@ -541,6 +549,7 @@
     document.getElementById("saveQtyBtn").addEventListener("click", async () => {
       const statusEl = document.getElementById("qtyStatus");
       statusEl.textContent = "सेव हो रहा है…";
+      statusEl.classList.remove("err");
       const entries = [];
       document.querySelectorAll("#qtyBody tr[data-id]").forEach(tr => {
         entries.push({
@@ -557,7 +566,7 @@
           if (e.rate > 0 && Number(persistedRate(e.itemId)) !== e.rate) rememberRate(e.itemId, e.rate);
         });
         statusEl.textContent = "✓ सेव हो गया";
-      } catch (e) { statusEl.textContent = "सेव नहीं हो पाया, दोबारा कोशिश करें।"; }
+      } catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
     });
 
     renderMasterManage(section, masterRes.items || []);
@@ -646,12 +655,13 @@
     document.getElementById("saveWeBtn").addEventListener("click", async () => {
       const statusEl = document.getElementById("weStatus");
       statusEl.textContent = "सेव हो रहा है…";
+      statusEl.classList.remove("err");
       const entries = [];
       document.querySelectorAll(".we-amount").forEach(inp => {
         entries.push({ itemId: inp.getAttribute("data-id"), itemName: inp.getAttribute("data-name"), amount: parseFloat(inp.value) || 0 });
       });
       try { await call("saveWorkExpense", { payload: { date, entries } }); statusEl.textContent = "✓ सेव हो गया"; }
-      catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
+      catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
     });
 
     const wm = document.getElementById("weMasterList");
@@ -737,13 +747,14 @@
     document.getElementById("saveAttBtn").addEventListener("click", async () => {
       const statusEl = document.getElementById("attStatus");
       statusEl.textContent = "सेव हो रहा है…";
+      statusEl.classList.remove("err");
       const entries = [];
       document.querySelectorAll(".worker-row").forEach(row => {
         entries.push({ workerId: row.getAttribute("data-id"), workerName: row.getAttribute("data-name"),
           present: row.querySelector(".att-present").classList.contains("on") });
       });
       try { await call("saveAttendance", { payload: { date, entries } }); statusEl.textContent = "✓ सेव हो गया"; }
-      catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
+      catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
     });
 
     const wm = document.getElementById("workerMasterList");
@@ -819,6 +830,7 @@
     document.getElementById("saveOthersBtn").addEventListener("click", async () => {
       const statusEl = document.getElementById("othersStatus");
       statusEl.textContent = "सेव हो रहा है…";
+      statusEl.classList.remove("err");
       const out = [];
       rowsEl.querySelectorAll(".add-form").forEach(row => {
         const name = row.querySelector(".oth-name").value.trim();
@@ -826,7 +838,7 @@
         if (name && amount > 0) out.push({ name, amount });
       });
       try { await call("saveOthers", { payload: { date, entries: out } }); statusEl.textContent = "✓ सेव हो गया"; }
-      catch (e) { statusEl.textContent = "सेव नहीं हो पाया।"; }
+      catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
     });
   }
 
@@ -1010,16 +1022,16 @@
         try {
           await call("saveMomosHisabEntry", { payload: { date, paneerCount: paneer, vegCount: veg } });
           const el = document.getElementById("mhStatus");
-          if (el) el.textContent = "✓ सेव हो गया";
+          if (el) { el.textContent = "✓ सेव हो गया"; el.classList.remove("err"); }
         } catch (e) {
           const el = document.getElementById("mhStatus");
-          if (el) el.textContent = "सेव नहीं हो पाया, फिर कोशिश करें।";
+          if (el) { el.textContent = "⚠ " + e.message; el.classList.add("err"); }
         }
       }, 700);
     }
     function autoSaveCounts() {
       const statusEl = document.getElementById("mhStatus");
-      if (statusEl) statusEl.textContent = "सेव हो रहा है…";
+      if (statusEl) { statusEl.textContent = "सेव हो रहा है…"; statusEl.classList.remove("err"); }
       // कीमत turant पकड़ लो — टैब बदल जाने पर भी ये save पूरा होना चाहिए
       const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
       const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
@@ -1095,12 +1107,13 @@
         recalc();
         const statusEl = document.getElementById("plStatus");
         statusEl.textContent = "रेट सेव हो रहा है…";
+        statusEl.classList.remove("err");
         clearTimeout(t);
         t = setTimeout(async () => {
           try {
             await call("saveMomosHisabRate", { payload: { key: PLATE_RATE_KEYS[kind], value: parseFloat(inp.value) || 0 } });
             statusEl.textContent = "✓ रेट सेव हो गया";
-          } catch (e) { statusEl.textContent = "रेट सेव नहीं हो पाया।"; }
+          } catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
         }, 600);
       });
     });
