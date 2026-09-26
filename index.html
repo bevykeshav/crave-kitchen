@@ -232,29 +232,28 @@
 
   // एक तारीख का सारा डेटा: खर्च (5 सेक्शन), प्लेट रेट, और मोमोज़ की गिनती
   async function loadDayData(date, withCounts) {
-    const [ratesRes, dailyRes, momosRes, packRes, weRes, othRes, entryRes] = await Promise.all([
+    const [summaryRes, ratesRes, entryRes] = await Promise.all([
+      safeCall("getDaySummary", { date }),
       safeCall("getMomosHisabRates"),
-      safeCall("getEntries", { section: "daily", date }),
-      safeCall("getEntries", { section: "momos", date }),
-      safeCall("getEntries", { section: "packing", date }),
-      safeCall("getWorkExpense", { date }),
-      safeCall("getOthers", { date }),
       withCounts ? withTimeout(safeCall("getMomosHisabEntry", { date }), 5000) : null
     ]);
     const rates = (ratesRes && ratesRes.rates) || {};
 
-    // कुल खर्च = Daily + मोमोज़ सामान + Packing + Work Expense + Others
-    const sumQty = r => r ? (r.entries || []).reduce((s, e) => s + (Number(e.quantity) || 0) * (Number(e.rate) || 0), 0) : null;
-    const sumAmt = r => r ? (r.entries || []).reduce((s, e) => s + (Number(e.amount) || 0), 0) : null;
-    const expenseLines = [
-      { label: "Daily का सामान", v: sumQty(dailyRes) },
-      { label: "मोमोज़ बनाने का सामान", v: sumQty(momosRes) },
-      { label: "Packing", v: sumQty(packRes) },
-      { label: "Work Expense", v: sumAmt(weRes) },
-      { label: "Others", v: sumAmt(othRes) }
+    // कुल खर्च = Daily + मोमोज़ सामान + Packing + Work Expense + Others (एक ही backend call से)
+    const labelKeys = [
+      ["Daily का सामान", "daily"], ["मोमोज़ बनाने का सामान", "momosSaaman"],
+      ["Packing", "packing"], ["Work Expense", "workExpense"], ["Others", "others"]
     ];
-    const missing = expenseLines.filter(x => x.v === null).map(x => x.label);
-    const totalExpense = expenseLines.reduce((s, x) => s + (x.v || 0), 0);
+    let expenseLines, missing, totalExpense;
+    if (summaryRes && summaryRes.breakdown) {
+      expenseLines = labelKeys.map(([label, key]) => ({ label, v: summaryRes.breakdown[key] }));
+      missing = [];
+      totalExpense = summaryRes.totalExpense || 0;
+    } else {
+      expenseLines = labelKeys.map(([label]) => ({ label, v: null }));
+      missing = labelKeys.map(([label]) => label);
+      totalExpense = 0;
+    }
 
     // गिनती पता न हो तो counts = null (हेडर में "—" दिखेगा, झूठा नुकसान नहीं)
     let counts = null;
