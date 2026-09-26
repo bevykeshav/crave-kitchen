@@ -983,18 +983,26 @@
     }
 
     let mhSaveTimer = null;
-    function autoSaveCounts() {
-      const statusEl = document.getElementById("mhStatus");
-      statusEl.textContent = "सेव हो रहा है…";
+    function queueCountsSave(paneer, veg) {
       clearTimeout(mhSaveTimer);
       mhSaveTimer = setTimeout(async () => {
-        const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
-        const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
         try {
           await call("saveMomosHisabEntry", { payload: { date, paneerCount: paneer, vegCount: veg } });
-          statusEl.textContent = "✓ सेव हो गया";
-        } catch (e) { statusEl.textContent = "सेव नहीं हो पाया, फिर कोशिश करें।"; }
+          const el = document.getElementById("mhStatus");
+          if (el) el.textContent = "✓ सेव हो गया";
+        } catch (e) {
+          const el = document.getElementById("mhStatus");
+          if (el) el.textContent = "सेव नहीं हो पाया, फिर कोशिश करें।";
+        }
       }, 700);
+    }
+    function autoSaveCounts() {
+      const statusEl = document.getElementById("mhStatus");
+      if (statusEl) statusEl.textContent = "सेव हो रहा है…";
+      // कीमत turant पकड़ लो — टैब बदल जाने पर भी ये save पूरा होना चाहिए
+      const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
+      const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
+      queueCountsSave(paneer, veg);
     }
     document.getElementById("mhPaneer").addEventListener("input", () => { recalc(true); autoSaveCounts(); });
     document.getElementById("mhVeg").addEventListener("input", () => { recalc(true); autoSaveCounts(); });
