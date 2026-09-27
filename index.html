@@ -297,7 +297,7 @@
     if (dayCache && dayCache.date === date) {
       // जो गिनती/प्लेट रेट अभी डाले हैं, उन्हें पुराने fetch से मत मिटाओ
       if (dayCache.counts) { data.counts = dayCache.counts; data.loadFailed = false; }
-      ["plate_paneer", "plate_veg"].forEach(k => { if (dayCache.rates[k] !== undefined) data.rates[k] = dayCache.rates[k]; });
+      ["paneer_price_per_plate", "veg_price_per_plate"].forEach(k => { if (dayCache.rates[k] !== undefined) data.rates[k] = dayCache.rates[k]; });
     }
     dayCache = Object.assign({ date }, data);
     updateHeader();
@@ -874,7 +874,7 @@
   // 1 प्लेट = 10 पीस; प्लेट का रेट backend में सेव होता है (जब तक सेव न हो, ये डिफ़ॉल्ट)
   const PIECES_PER_PLATE = 10;
   const PLATE_DEFAULT = { paneer: 80, veg: 60 };
-  const PLATE_RATE_KEYS = { paneer: "plate_paneer", veg: "plate_veg" };
+  const PLATE_RATE_KEYS = { paneer: "paneer_price_per_plate", veg: "veg_price_per_plate" };
   // Extra momos varieties: Paneer/Veg are fixed; बाकी varieties इसी master list में रहेंगी।
   const MOMOS_VARIETIES_KEY = "momos_varieties_v1";
   function getMomosVarieties(rates) {
