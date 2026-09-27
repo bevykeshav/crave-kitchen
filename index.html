@@ -227,7 +227,9 @@
   // मोमोज़ की कीमत = (पनीर पीस ÷ 10) × पनीर रेट + (वेज पीस ÷ 10) × वेज रेट — ये कुल खर्च में जुड़ती है
   // गिनती पता न हो तो null
   function momosCostFor(d) {
-    if (!d || !d.counts) return null;
+    if (!d) return null;
+    if (Array.isArray(d.salesEntries)) return d.salesEntries.reduce((sum,e)=>sum+(Number(e.total)||0),0);
+    if (!d.counts) return null;
     return (d.counts.paneer / PIECES_PER_PLATE) * plateRateFrom(d.rates, "paneer")
          + (d.counts.veg / PIECES_PER_PLATE) * plateRateFrom(d.rates, "veg");
   }
@@ -253,49 +255,36 @@
 
   // एक तारीख का सारा डेटा: खर्च (5 सेक्शन), प्लेट रेट, और मोमोज़ की गिनती
   async function loadDayData(date, withCounts) {
-    // पहले 3 अलग Apps Script requests होती थीं। अब summary + rates + count
-    // एक ही backend request में आते हैं, इसलिए header काफी जल्दी खुलता है।
     const result = await withTimeout(safeCall("getDayData", { date, withCounts: withCounts !== false }), 15000);
     const summaryRes = result && result.summary;
     const rates = (result && result.rates) || {};
     const entryRes = result && result.entry;
-
-    // कुल खर्च = Daily + मोमोज़ सामान + Packing + Work Expense + Others (एक ही backend call से)
-    const labelKeys = [
-      ["Daily का सामान", "daily"], ["मोमोज़ बनाने का सामान", "momosSaaman"],
-      ["Packing", "packing"], ["Work Expense", "workExpense"], ["Others", "others"]
-    ];
+    const salesEntries = Array.isArray(result && result.salesEntries) ? result.salesEntries : null;
+    const varieties = Array.isArray(result && result.varieties) ? result.varieties : [];
+    const labelKeys = [["Daily का सामान","daily"],["मोमोज़ बनाने का सामान","momosSaaman"],["Packing","packing"],["Work Expense","workExpense"],["Others","others"]];
     let expenseLines, missing, totalExpense;
     if (summaryRes && summaryRes.breakdown) {
-      expenseLines = labelKeys.map(([label, key]) => ({ label, v: summaryRes.breakdown[key] }));
-      missing = [];
-      totalExpense = summaryRes.totalExpense || 0;
+      expenseLines = labelKeys.map(([label,key])=>({label,v:summaryRes.breakdown[key]}));
+      missing=[]; totalExpense=Number(summaryRes.totalExpense)||0;
     } else {
-      expenseLines = labelKeys.map(([label]) => ({ label, v: null }));
-      missing = labelKeys.map(([label]) => label);
-      totalExpense = 0;
+      expenseLines=labelKeys.map(([label])=>({label,v:null})); missing=labelKeys.map(([label])=>label); totalExpense=0;
     }
-
-    // गिनती पता न हो तो counts = null (हेडर में "—" दिखेगा, झूठा नुकसान नहीं, और तारीख-टैब भी
-    // 0 नहीं मान लेगा — "loadFailed" अलग से बताता है कि ये असल में 0 है या सिर्फ़ लोड नहीं हो पाया)
-    let counts = null;
-    let loadFailed = !!withCounts;
-    const saved = entryRes;
-    if (saved && (saved.paneerCount !== undefined || saved.vegCount !== undefined)) {
-      counts = { paneer: Number(saved.paneerCount) || 0, veg: Number(saved.vegCount) || 0 };
-      loadFailed = false;
+    let counts=null; let loadFailed=!!withCounts;
+    if (salesEntries !== null) loadFailed=false;
+    if (entryRes && (entryRes.paneerCount !== undefined || entryRes.vegCount !== undefined)) {
+      counts={paneer:Number(entryRes.paneerCount)||0,veg:Number(entryRes.vegCount)||0}; loadFailed=false;
     }
-    return { rates, expenseLines, missing, totalExpense, counts, loadFailed };
+    return {rates,expenseLines,missing,totalExpense,counts,loadFailed,salesEntries:salesEntries||[],varieties};
   }
 
   function applyDayData(date, data) {
     if (dayCache && dayCache.date === date) {
-      // जो गिनती/प्लेट रेट अभी डाले हैं, उन्हें पुराने fetch से मत मिटाओ
-      if (dayCache.counts) { data.counts = dayCache.counts; data.loadFailed = false; }
-      ["plate_paneer", "plate_veg"].forEach(k => { if (dayCache.rates[k] !== undefined) data.rates[k] = dayCache.rates[k]; });
+      if (dayCache.counts) { data.counts=dayCache.counts; data.loadFailed=false; }
+      if (Array.isArray(dayCache.salesEntries)) data.salesEntries=dayCache.salesEntries;
+      if (Array.isArray(dayCache.varieties) && dayCache.varieties.length) data.varieties=dayCache.varieties;
+      Object.keys(dayCache.rates||{}).forEach(k=>{ if(dayCache.rates[k]!==undefined) data.rates[k]=dayCache.rates[k]; });
     }
-    dayCache = Object.assign({ date }, data);
-    updateHeader();
+    dayCache=Object.assign({date},data); updateHeader();
   }
 
   async function refreshHeader() {
@@ -476,7 +465,7 @@
     }
     const items = (masterRes.items || []).filter(it => it.active);
     const existing = {};
-    (entriesRes.entries || []).forEach(e => { existing[e.itemId] = e; });
+    (entriesRes.entries || []).forEach(e => { existing[String(e.itemId).trim()] = e; });
 
     // ₹/यूनिट हर दिन बना रहता है; मात्रा हर तारीख की अलग होती है (नई तारीख पर खाली)
     const savedRates = (ratesRes && ratesRes.rates) || {};
@@ -492,7 +481,7 @@
     const rememberRate = (id, value) => { savedRates[itemRateKey(section, id)] = value; persistItemRate(section, id, value); };
 
     let rows = items.map(it => {
-      const ex = existing[it.id];
+      const ex = existing[String(it.id).trim()];
       const rateVal = (ex && Number(ex.rate) > 0) ? ex.rate : persistedRate(it.id);
       return `<tr data-id="${it.id}" data-unit="${esc(it.unit)}">
         <td class="name-cell">${esc(it.name)}<div class="muted" style="font-size:11px;">${esc(it.unit)}</div></td>
@@ -569,6 +558,8 @@
       });
       try {
         const saved = await call("saveEntries", { section, payload: { date, entries } });
+        await renderActiveTab();
+        await refreshHeader();
         entries.forEach(e => {
           if (e.rate > 0 && Number(persistedRate(e.itemId)) !== e.rate) rememberRate(e.itemId, e.rate);
         });
@@ -622,12 +613,12 @@
     } catch (e) { showLoadError(c); return; }
     const items = (masterRes.items || []).filter(it => it.active);
     const existing = {};
-    (entriesRes.entries || []).forEach(e => { existing[e.itemId] = e; });
+    (entriesRes.entries || []).forEach(e => { existing[String(e.itemId).trim()] = e; });
 
     let rows = items.map(it => `
       <div class="master-row">
         <span class="name-cell" style="font-weight:600;">${esc(it.name)}</span>
-        <input type="number" class="we-amount" min="0" step="1" data-id="${it.id}" data-name="${esc(it.name)}" value="${existing[it.id]?existing[it.id].amount:''}" placeholder="₹0">
+        <input type="number" class="we-amount" min="0" step="1" data-id="${it.id}" data-name="${esc(it.name)}" value="${existing[String(it.id).trim()]?existing[String(it.id).trim()].amount:''}" placeholder="₹0">
       </div>`).join("");
 
     c.innerHTML = `
@@ -890,253 +881,119 @@
   function renderMomosHisabBody() {
     const date = dayCache.date;
     const c = document.getElementById("tabContent");
-    const rates = dayCache.rates;
-    const { expenseLines, missing, totalExpense } = dayCache;
-    const plateRate = kind => plateRateFrom(rates, kind);
-
-    // गिनती अभी लोड नहीं हो पाई (network/timeout) — 0 मत मान लो, साफ़ बताओ और फिर कोशिश का मौका दो
-    const countsUnknown = dayCache.loadFailed && !dayCache.counts;
-    const paneerInit = dayCache.counts ? dayCache.counts.paneer : "";
-    const vegInit = dayCache.counts ? dayCache.counts.veg : "";
+    const rates = dayCache.rates || {};
+    const expenseLines = dayCache.expenseLines || [];
+    const varieties = (dayCache.varieties || []).slice().sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
+    const existing = {};
+    (dayCache.salesEntries || []).forEach(e => { existing[e.varietyId] = e; });
+    const allVarieties = varieties.filter(v => v.active || existing[v.id]);
 
     c.innerHTML = `
       <div class="card">
         <h2>रोज़ का हिसाब</h2>
-        <p class="hint">${esc(date)} — कुल बिक्री (कैश + ऑनलाइन) − कुल खर्च (मोमोज़ की कीमत समेत) = लाभ / हानि।</p>
+        <p class="hint">${esc(date)} — कुल बिक्री − कुल खर्च = लाभ / हानि।</p>
         <div class="stat-grid">
           <div class="stat"><div class="label">कुल बिक्री</div><div class="value" id="dhSales">₹0</div></div>
           <div class="stat clay"><div class="label">कुल खर्च</div><div class="value" id="dhExpense">…</div></div>
           <div class="stat" id="dhPLBox"><div class="label" id="dhPLLabel">लाभ</div><div class="value" id="dhPL">₹0</div></div>
         </div>
         <p class="warn" id="dhCountHint"></p>
-        ${missing.length ? `<p class="warn">⚠ ये लोड नहीं हो पाए, खर्च अधूरा हो सकता है: ${esc(missing.join(", "))}</p>` : ''}
-        <div class="breakdown-list" id="recvLine"></div>
+        ${expenseLines.length ? `<div class="breakdown-list">${expenseLines.map(x=>`<div><span>${esc(x.label)}</span><span>${x.v===null?'—':money(x.v)}</span></div>`).join('')}</div>` : ''}
         <button class="secondary" id="shareWhatsappBtn" style="margin-top:12px;width:100%;">📤 WhatsApp पर रिपोर्ट भेजें</button>
       </div>
 
       <div class="card">
-        <h2>मोमोज़ (प्लेट के हिसाब से)</h2>
-        ${countsUnknown ? `
-          <p class="warn">⚠ इस तारीख की पहले से डाली गिनती लोड नहीं हो पाई (नेटवर्क/सर्वर धीमा)। नीचे 0 मान के सेव मत करना — पहले फिर लोड करो।</p>
-          <button class="secondary" id="reloadCountsBtn" style="width:100%;margin-bottom:10px;">🔄 गिनती फिर लोड करें</button>
-        ` : ''}
-        <p class="hint">कितने मोमोज़ बने (पीस) डालो — 1 प्लेट = ${PIECES_PER_PLATE} पीस। प्लेट × रेट की ये रकम कुल खर्च में जुड़ती है।</p>
+        <h2>मोमोज़ — सभी varieties</h2>
+        <p class="hint">अब पनीर/वेज तक सीमित नहीं। नई variety नीचे से जोड़ो। 1 प्लेट में जितने पीस हों, वह भी बदल सकते हो।</p>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>मोमोज़</th><th class="num">बने (पीस)</th><th class="num">प्लेट</th><th class="num">₹/प्लेट</th><th class="num">कीमत ₹</th></tr></thead>
-            <tbody>
-              <tr>
-                <td class="name-cell">पनीर</td>
-                <td class="num"><input type="number" class="mini" id="mhPaneer" min="0" step="1" value="${paneerInit}" placeholder="${countsUnknown ? '…' : '0'}" ${countsUnknown ? 'disabled' : ''}></td>
-                <td class="num" id="plPaneerPlates">0</td>
-                <td class="num"><input type="number" class="mini" id="plPaneer" min="0" step="1" value="${plateRate("paneer")}"></td>
-                <td class="num" id="plPaneerSales">₹0</td>
-              </tr>
-              <tr>
-                <td class="name-cell">वेज</td>
-                <td class="num"><input type="number" class="mini" id="mhVeg" min="0" step="1" value="${vegInit}" placeholder="${countsUnknown ? '…' : '0'}" ${countsUnknown ? 'disabled' : ''}></td>
-                <td class="num" id="plVegPlates">0</td>
-                <td class="num"><input type="number" class="mini" id="plVeg" min="0" step="1" value="${plateRate("veg")}"></td>
-                <td class="num" id="plVegSales">₹0</td>
-              </tr>
+            <thead><tr><th>मोमोज़</th><th class="num">बने (पीस)</th><th class="num">प्लेट</th><th class="num">₹/प्लेट</th><th class="num">बिक्री ₹</th></tr></thead>
+            <tbody id="momosSalesBody">
+              ${allVarieties.length ? allVarieties.map(v=>{
+                const ex=existing[v.id]||{}; const ppp=Number(v.piecesPerPlate)||10; const price=Number(v.price)||0;
+                return `<tr data-variety-id="${esc(v.id)}"><td class="name-cell">${esc(v.name)}${v.active?'':' <span class="muted">— बंद</span>'}</td><td class="num"><input type="number" class="mini ms-pieces" min="0" step="1" value="${ex.pieces||''}" placeholder="0"></td><td class="num ms-plates">0</td><td class="num"><input type="number" class="mini ms-price" min="0" step="1" value="${price}"></td><td class="num ms-total">₹0</td></tr>`;
+              }).join('') : '<tr><td colspan="5" class="muted">अभी कोई variety नहीं है। नीचे से जोड़ें।</td></tr>'}
             </tbody>
-            <tfoot><tr class="total-row"><td colspan="4">मोमोज़ की कुल कीमत</td><td class="num" id="plSalesTotal">₹0</td></tr></tfoot>
+            <tfoot><tr class="total-row"><td colspan="4">मोमोज़ की कुल बिक्री</td><td class="num" id="plSalesTotal">₹0</td></tr></tfoot>
           </table>
         </div>
+        <button class="primary" id="saveMomosSalesBtn" style="margin-top:12px;">सेव करें</button>
         <p class="save-status" id="mhStatus"></p>
-        <p class="save-status" id="plStatus"></p>
+      </div>
+
+      <div class="card">
+        <details class="master-manage" open>
+          <summary>+ नई Momos Variety जोड़ें / Manage करें</summary>
+          <div class="add-form" style="margin-top:10px;">
+            <input type="text" id="newMomosName" class="wide" placeholder="जैसे Kurkure Momos">
+            <input type="number" id="newMomosPrice" min="0" step="1" placeholder="₹/plate" style="max-width:120px;">
+            <input type="number" id="newMomosPieces" min="1" step="1" value="10" placeholder="पीस/plate" style="max-width:120px;">
+            <button class="secondary" id="addMomosVarietyBtn">जोड़ें</button>
+          </div>
+          <div id="momosVarietyManage" style="margin-top:12px;"></div>
+        </details>
       </div>
 
       <div class="card">
         <h2>आज का खर्च</h2>
-        <p class="hint">बाकी टैब्स में जो डाला है उसका जोड़ (बदलाव उन्हीं टैब्स में करें) और ऊपर वाले मोमोज़ कार्ड की कीमत।</p>
-        <table>
-          <tbody>
-            ${expenseLines.map(x => `<tr><td class="name-cell">${esc(x.label)}</td><td class="num">${x.v === null ? '—' : money(x.v)}</td></tr>`).join("")}
-            <tr><td class="name-cell">मोमोज़ (प्लेट रेट × प्लेट)</td><td class="num" id="dhMomosCost">—</td></tr>
-          </tbody>
-          <tfoot><tr class="total-row"><td>कुल खर्च</td><td class="num" id="dhExpenseTotal">…</td></tr></tfoot>
-        </table>
+        <table><tbody>
+          ${expenseLines.map(x=>`<tr><td class="name-cell">${esc(x.label)}</td><td class="num">${x.v===null?'—':money(x.v)}</td></tr>`).join('')}
+          <tr><td class="name-cell">मोमोज़ (प्लेट रेट × प्लेट)</td><td class="num" id="dhMomosCost">—</td></tr>
+        </tbody><tfoot><tr class="total-row"><td>कुल खर्च</td><td class="num" id="dhExpenseTotal">…</td></tr></tfoot></table>
       </div>
 
       <div class="card">
-        <details class="master-manage" style="margin-top:0;border-top:none;padding-top:0;">
-          <summary>मोमोज़ बनाने के सामान का अनुमान (सिर्फ़ रेफ़रेंस — हिसाब में नहीं जुड़ता)</summary>
-          <p class="hint" style="margin-top:8px;">ऊपर के पीस के हिसाब से अनुमानित सामान और लागत। असली खर्च ऊपर वाले टैब्स में दर्ज होता है।</p>
-          <div class="table-scroll">
-            <table>
-              <thead><tr><th>सामान</th><th class="num">मात्रा</th><th class="num">₹/किलो</th><th class="num">कीमत ₹</th></tr></thead>
-              <tbody id="mhBody"></tbody>
-              <tfoot><tr class="total-row"><td colspan="3">कुल अनुमानित लागत</td><td class="num" id="mhTotal">₹0</td></tr></tfoot>
-            </table>
-          </div>
+        <details class="master-manage">
+          <summary>मोमोज़ बनाने के सामान का अनुमान (सिर्फ़ रेफ़रेंस)</summary>
+          <p class="hint" style="margin-top:8px;">सभी varieties के कुल पीस के आधार पर पुराना अनुमान। असली खर्च ऊपर के सामान वाले tabs में दर्ज होता है।</p>
+          <div class="table-scroll"><table><thead><tr><th>सामान</th><th class="num">मात्रा</th><th class="num">₹/किलो</th><th class="num">कीमत ₹</th></tr></thead><tbody id="mhBody"></tbody><tfoot><tr class="total-row"><td colspan="3">कुल अनुमानित लागत</td><td class="num" id="mhTotal">₹0</td></tr></tfoot></table></div>
         </details>
       </div>`;
 
     const tbody = document.getElementById("mhBody");
-    tbody.innerHTML = MH_ITEMS.map(it => `
-      <tr data-key="${it.key}">
-        <td class="name-cell">${esc(it.name)}</td>
-        <td class="num" data-qty>—</td>
-        <td class="num"><input type="number" class="mh-rate" data-key="${it.key}" min="0" step="0.01" value="${rates[it.key]||''}" placeholder="0"></td>
-        <td class="num" data-cost>₹0</td>
-      </tr>`).join("");
+    tbody.innerHTML = MH_ITEMS.map(it=>`<tr data-key="${it.key}"><td class="name-cell">${esc(it.name)}</td><td class="num" data-qty>—</td><td class="num"><input type="number" class="mh-rate" data-key="${it.key}" min="0" step="0.01" value="${rates[it.key]||''}" placeholder="0"></td><td class="num" data-cost>₹0</td></tr>`).join('');
 
-    const fmtPlates = n => String(+(n / PIECES_PER_PLATE).toFixed(2));
-
-    function recalc(fromUser) {
-      const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
-      const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
-      const paneerRate = parseFloat(document.getElementById("plPaneer").value) || 0;
-      const vegRate = parseFloat(document.getElementById("plVeg").value) || 0;
-
-      // गिनती और प्लेट रेट याद रखो (टैब बदलकर लौटने पर बने रहें)
-      if (fromUser === true || dayCache.counts) dayCache.counts = { paneer, veg };
-      dayCache.rates.plate_paneer = paneerRate;
-      dayCache.rates.plate_veg = vegRate;
-      refreshReceived();
-
-      // मोमोज़ की कीमत = (पनीर ÷ 10) × पनीर रेट + (वेज ÷ 10) × वेज रेट
-      const paneerSales = (paneer / PIECES_PER_PLATE) * paneerRate;
-      const vegSales = (veg / PIECES_PER_PLATE) * vegRate;
-      const sales = paneerSales + vegSales;
-
-      document.getElementById("plPaneerPlates").textContent = fmtPlates(paneer);
-      document.getElementById("plVegPlates").textContent = fmtPlates(veg);
-      document.getElementById("plPaneerSales").textContent = money(paneerSales);
-      document.getElementById("plVegSales").textContent = money(vegSales);
-      document.getElementById("plSalesTotal").textContent = money(sales);
-
-      // सामान का अनुमान (रेफ़रेंस)
-      const factor = (paneer + veg) / MH_BASE_MOMOS;
-      let grand = 0;
-      MH_ITEMS.forEach(it => {
-        const grams = it.key === "paneer" ? MH_PANEER_PER_MOMO * paneer : MH_GRAMS[it.key] * factor;
-        const rate = rates[it.key] || 0;
-        const cost = (grams / 1000) * rate;
-        grand += cost;
-        const tr = tbody.querySelector(`tr[data-key="${it.key}"]`);
-        tr.querySelector("[data-qty]").textContent = grams >= 1000 ? (grams / 1000).toFixed(2) + " किग्रा" : Math.round(grams) + " ग्राम";
-        tr.querySelector("[data-cost]").textContent = money(cost);
-      });
-      document.getElementById("mhTotal").textContent = money(grand);
+    function getRows() {
+      return allVarieties.map(v=>{
+        const tr=c.querySelector(`tr[data-variety-id="${CSS.escape(v.id)}"]`); if(!tr) return null;
+        const pieces=Math.max(0,parseFloat(tr.querySelector('.ms-pieces').value)||0);
+        const price=Math.max(0,parseFloat(tr.querySelector('.ms-price').value)||0);
+        const ppp=Math.max(1,Number(v.piecesPerPlate)||10);
+        return {varietyId:v.id,name:v.name,pieces,piecesPerPlate:ppp,price,total:(pieces/ppp)*price};
+      }).filter(Boolean);
     }
+    function recalc(){
+      let sales=0,totalPieces=0;
+      getRows().forEach(e=>{const tr=c.querySelector(`tr[data-variety-id="${CSS.escape(e.varietyId)}"]`); tr.querySelector('.ms-plates').textContent=(e.pieces/e.piecesPerPlate).toFixed(2).replace(/\.00$/,''); tr.querySelector('.ms-total').textContent=money(e.total); sales+=e.total; totalPieces+=e.pieces;});
+      document.getElementById('plSalesTotal').textContent=money(sales);
+      let grand=0; const factor=totalPieces/MH_BASE_MOMOS; const paneerPieces=(getRows().find(e=>e.varietyId==='paneer')||{}).pieces||0;
+      MH_ITEMS.forEach(it=>{const grams=it.key==='paneer'?MH_PANEER_PER_MOMO*paneerPieces:MH_GRAMS[it.key]*factor; const rate=rates[it.key]||0; const cost=grams/1000*rate; grand+=cost; const tr=tbody.querySelector(`tr[data-key="${CSS.escape(it.key)}"]`); if(tr){tr.querySelector('[data-qty]').textContent=grams>=1000?(grams/1000).toFixed(2)+' किग्रा':Math.round(grams)+' ग्राम'; tr.querySelector('[data-cost]').textContent=money(cost);}});
+      document.getElementById('mhTotal').textContent=money(grand); refreshReceived();
+    }
+    c.querySelectorAll('.ms-pieces,.ms-price').forEach(inp=>inp.addEventListener('input',recalc));
 
-    let mhSaveTimer = null;
-    function queueCountsSave(paneer, veg) {
-      clearTimeout(mhSaveTimer);
-      mhSaveTimer = setTimeout(async () => {
-        try {
-          await call("saveMomosHisabEntry", { payload: { date, paneerCount: paneer, vegCount: veg } });
-          const el = document.getElementById("mhStatus");
-          if (el) { el.textContent = "✓ सेव हो गया"; el.classList.remove("err"); }
-        } catch (e) {
-          const el = document.getElementById("mhStatus");
-          if (el) { el.textContent = "⚠ " + e.message; el.classList.add("err"); }
-        }
-      }, 700);
-    }
-    function autoSaveCounts() {
-      const statusEl = document.getElementById("mhStatus");
-      if (statusEl) { statusEl.textContent = "सेव हो रहा है…"; statusEl.classList.remove("err"); }
-      // कीमत turant पकड़ लो — टैब बदल जाने पर भी ये save पूरा होना चाहिए
-      const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
-      const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
-      queueCountsSave(paneer, veg);
-    }
-    if (!countsUnknown) {
-      document.getElementById("mhPaneer").addEventListener("input", () => { recalc(true); autoSaveCounts(); });
-      document.getElementById("mhVeg").addEventListener("input", () => { recalc(true); autoSaveCounts(); });
-    }
-
-    const reloadBtn = document.getElementById("reloadCountsBtn");
-    if (reloadBtn) {
-      reloadBtn.addEventListener("click", async () => {
-        reloadBtn.disabled = true;
-        reloadBtn.textContent = "लोड हो रहा है…";
-        const entryRes = await withTimeout(safeCall("getMomosHisabEntry", { date }), 15000);
-        if (date !== dayCache.date) return;   // इस बीच तारीख बदल गई
-        if (entryRes && (entryRes.paneerCount !== undefined || entryRes.vegCount !== undefined)) {
-          dayCache.counts = { paneer: Number(entryRes.paneerCount) || 0, veg: Number(entryRes.vegCount) || 0 };
-          dayCache.loadFailed = false;
-          updateHeader();
-          renderMomosHisabBody();
-        } else {
-          reloadBtn.disabled = false;
-          reloadBtn.textContent = "🔄 फिर कोशिश करें";
-        }
-      });
-    }
-
-    function buildReportText() {
-      const r = computePL();
-      const cash = parseFloat(document.getElementById("cashInput").value) || 0;
-      const online = parseFloat(document.getElementById("onlineInput").value) || 0;
-      const lines = [];
-      lines.push("📋 Crave Kitchen — रोज़ का हिसाब");
-      lines.push(date);
-      lines.push("");
-      lines.push("बिक्री:");
-      lines.push("कैश: ₹" + cash.toLocaleString("en-IN"));
-      lines.push("ऑनलाइन: ₹" + online.toLocaleString("en-IN"));
-      lines.push("कुल बिक्री: ₹" + (cash + online).toLocaleString("en-IN"));
-      lines.push("");
-      lines.push("खर्च:");
-      dayCache.expenseLines.forEach(x => {
-        lines.push(x.label + ": " + (x.v === null ? "—" : "₹" + Math.round(x.v).toLocaleString("en-IN")));
-      });
-      const momosCost = momosCostFor(dayCache);
-      lines.push("मोमोज़ (प्लेट रेट): " + (momosCost === null ? "—" : "₹" + Math.round(momosCost).toLocaleString("en-IN")));
-      if (r && r.expense !== null) lines.push("कुल खर्च: ₹" + Math.round(r.expense).toLocaleString("en-IN"));
-      lines.push("");
-      if (r && r.pl !== null) {
-        const isLoss = r.pl < 0;
-        lines.push((isLoss ? "हानि" : "लाभ") + ": ₹" + Math.round(Math.abs(r.pl)).toLocaleString("en-IN"));
-      } else {
-        lines.push("लाभ/हानि: मोमोज़ की गिनती डालें");
-      }
-      return lines.join("\n");
-    }
-
-    document.getElementById("shareWhatsappBtn").addEventListener("click", async () => {
-      const text = buildReportText();
-      if (navigator.share) {
-        try { await navigator.share({ text }); return; } catch (e) { /* user cancelled ya unsupported, नीचे fallback */ }
-      }
-      window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
+    document.getElementById('saveMomosSalesBtn').addEventListener('click',async()=>{
+      const st=document.getElementById('mhStatus'); st.textContent='सेव हो रहा है…'; st.classList.remove('err');
+      try { const entries=getRows(); const res=await call('saveMomosDailySales',{payload:{date,entries}}); dayCache.salesEntries=entries.map(e=>Object.assign({},e,{total:(Number(e.pieces)||0)/(Number(e.piecesPerPlate)||10)*(Number(e.price)||0)})).filter(e=>e.pieces>0); st.textContent='✓ सेव हो गया'; scheduleHeaderRefresh(); setTimeout(()=>{if(activeTab==='momoshisab'&&currentDate()===date) renderMomosHisabBody();},350); } catch(e){st.textContent='⚠ '+e.message; st.classList.add('err');}
     });
 
-    // प्लेट का रेट बदलो तो backend में अपने-आप सेव
-    [["plPaneer", "paneer"], ["plVeg", "veg"]].forEach(([id, kind]) => {
-      const inp = document.getElementById(id);
-      let t = null;
-      inp.addEventListener("input", () => {
-        recalc();
-        const statusEl = document.getElementById("plStatus");
-        statusEl.textContent = "रेट सेव हो रहा है…";
-        statusEl.classList.remove("err");
-        clearTimeout(t);
-        t = setTimeout(async () => {
-          try {
-            await call("saveMomosHisabRate", { payload: { key: PLATE_RATE_KEYS[kind], value: parseFloat(inp.value) || 0 } });
-            statusEl.textContent = "✓ रेट सेव हो गया";
-          } catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
-        }, 600);
-      });
+    document.getElementById('addMomosVarietyBtn').addEventListener('click',async()=>{
+      const name=document.getElementById('newMomosName').value.trim(), price=parseFloat(document.getElementById('newMomosPrice').value)||0, pieces=parseInt(document.getElementById('newMomosPieces').value,10)||10;
+      if(!name){alert('Variety का नाम डालें');return;}
+      try{await call('addMomosVariety',{payload:{name,price,piecesPerPlate:pieces}}); const fresh=await call('getMomosVarieties'); dayCache.varieties=fresh.items||[]; renderMomosHisabBody();}catch(e){alert(e.message);}
     });
 
-    tbody.querySelectorAll(".mh-rate").forEach(inp => {
-      let t = null;
-      inp.addEventListener("input", () => {
-        rates[inp.getAttribute("data-key")] = parseFloat(inp.value) || 0;
-        recalc();
-        clearTimeout(t);
-        t = setTimeout(() => call("saveMomosHisabRate", { payload: { key: inp.getAttribute("data-key"), value: rates[inp.getAttribute("data-key")] } }).catch(() => {}), 600);
-      });
-    });
+    const manage=document.getElementById('momosVarietyManage');
+    manage.innerHTML=varieties.map(v=>`<div class="master-row"><span><b>${esc(v.name)}</b> — ₹${Number(v.price)||0}/plate, ${Number(v.piecesPerPlate)||10} पीस ${v.active?'':'<span class="muted">— बंद</span>'}</span><span><button class="chip ${v.active?'on':''}" data-mv-toggle="${esc(v.id)}">${v.active?'सक्रिय':'बंद'}</button><button class="icon-btn danger" data-mv-del="${esc(v.id)}">हटाएं</button></span></div>`).join('');
+    manage.querySelectorAll('[data-mv-toggle]').forEach(b=>b.addEventListener('click',async()=>{await call('toggleMomosVariety',{payload:{id:b.getAttribute('data-mv-toggle')}}); const fresh=await call('getMomosVarieties'); dayCache.varieties=fresh.items||[]; renderMomosHisabBody();}));
+    manage.querySelectorAll('[data-mv-del]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('इस variety को हटाएं? पुराने sales records सुरक्षित रहेंगे।'))return; await call('deleteMomosVariety',{payload:{id:b.getAttribute('data-mv-del')}}); const fresh=await call('getMomosVarieties'); dayCache.varieties=fresh.items||[]; renderMomosHisabBody();}));
 
+    c.querySelectorAll('.ms-price').forEach(inp=>{let t=null; inp.addEventListener('change',()=>{const tr=inp.closest('tr'),id=tr.getAttribute('data-variety-id'),price=parseFloat(inp.value)||0; clearTimeout(t); t=setTimeout(async()=>{try{await call('updateMomosVariety',{payload:{id,price}}); const v=(dayCache.varieties||[]).find(x=>x.id===id); if(v)v.price=price;}catch(e){}},300);});});
+    tbody.querySelectorAll('.mh-rate').forEach(inp=>{let t=null; inp.addEventListener('input',()=>{rates[inp.getAttribute('data-key')]=parseFloat(inp.value)||0; recalc(); clearTimeout(t); t=setTimeout(()=>call('saveMomosHisabRate',{payload:{key:inp.getAttribute('data-key'),value:rates[inp.getAttribute('data-key')]}}).catch(()=>{}),600);});});
+
+    const textReport=()=>{const r=computePL(); const lines=['📋 Crave Kitchen — रोज़ का हिसाब',date,'','मोमोज़ बिक्री: '+money(momosCostFor(dayCache)||0),'कुल अन्य खर्च: '+money(dayCache.totalExpense||0),'कुल खर्च: '+(r&&r.expense!==null?money(r.expense):'—'),r&&r.pl!==null?((r.pl<0?'हानि':'लाभ')+': '+money(Math.abs(r.pl))):'लाभ/हानि: —']; return lines.join('\n');};
+    document.getElementById('shareWhatsappBtn').addEventListener('click',async()=>{const text=textReport(); if(navigator.share){try{await navigator.share({text});return;}catch(e){}} window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');});
     recalc();
-    refreshReceived();
   }
 
   renderActiveTab();
