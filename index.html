@@ -228,13 +228,8 @@
   // गिनती पता न हो तो null
   function momosCostFor(d) {
     if (!d || !d.counts) return null;
-    let total = (d.counts.paneer / PIECES_PER_PLATE) * plateRateFrom(d.rates, "paneer")
-              + (d.counts.veg / PIECES_PER_PLATE) * plateRateFrom(d.rates, "veg");
-    const extra = d.counts.extra || {};
-    getMomosVarieties(d.rates).filter(v => !v.fixed).forEach(v => {
-      total += (Number(extra[v.id]) || 0) / PIECES_PER_PLATE * (Number(d.rates["plate_" + v.id]) || 0);
-    });
-    return total;
+    return (d.counts.paneer / PIECES_PER_PLATE) * plateRateFrom(d.rates, "paneer")
+         + (d.counts.veg / PIECES_PER_PLATE) * plateRateFrom(d.rates, "veg");
   }
 
   // लाभ / हानि = (कैश + ऑनलाइन) − कुल खर्च;  कुल खर्च = बाकी टैब्स का जोड़ + मोमोज़ की कीमत
@@ -287,7 +282,7 @@
     let loadFailed = !!withCounts;
     const saved = entryRes;
     if (saved && (saved.paneerCount !== undefined || saved.vegCount !== undefined)) {
-      counts = { paneer: Number(saved.paneerCount) || 0, veg: Number(saved.vegCount) || 0, extra: (saved.extraCounts && typeof saved.extraCounts === "object") ? saved.extraCounts : {} };
+      counts = { paneer: Number(saved.paneerCount) || 0, veg: Number(saved.vegCount) || 0 };
       loadFailed = false;
     }
     return { rates, expenseLines, missing, totalExpense, counts, loadFailed };
@@ -297,7 +292,7 @@
     if (dayCache && dayCache.date === date) {
       // जो गिनती/प्लेट रेट अभी डाले हैं, उन्हें पुराने fetch से मत मिटाओ
       if (dayCache.counts) { data.counts = dayCache.counts; data.loadFailed = false; }
-      ["paneer_price_per_plate", "veg_price_per_plate"].forEach(k => { if (dayCache.rates[k] !== undefined) data.rates[k] = dayCache.rates[k]; });
+      ["plate_paneer", "plate_veg"].forEach(k => { if (dayCache.rates[k] !== undefined) data.rates[k] = dayCache.rates[k]; });
     }
     dayCache = Object.assign({ date }, data);
     updateHeader();
@@ -874,33 +869,7 @@
   // 1 प्लेट = 10 पीस; प्लेट का रेट backend में सेव होता है (जब तक सेव न हो, ये डिफ़ॉल्ट)
   const PIECES_PER_PLATE = 10;
   const PLATE_DEFAULT = { paneer: 80, veg: 60 };
-  const PLATE_RATE_KEYS = { paneer: "paneer_price_per_plate", veg: "veg_price_per_plate" };
-  // Extra momos varieties: Paneer/Veg are fixed; बाकी varieties इसी master list में रहेंगी।
-  const MOMOS_VARIETIES_KEY = "momos_varieties_v1";
-  function getMomosVarieties(rates) {
-    const fallback = [
-      { id:"paneer", name:"पनीर", fixed:true },
-      { id:"veg", name:"वेज", fixed:true }
-    ];
-    try {
-      const raw = rates && rates[MOMOS_VARIETIES_KEY];
-      const arr = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(arr)) return fallback;
-      const custom = arr.filter(x => x && x.id && x.name && x.id !== "paneer" && x.id !== "veg")
-        .map(x => ({ id:String(x.id), name:String(x.name), fixed:false }));
-      return fallback.concat(custom);
-    } catch (e) { return fallback; }
-  }
-  function getMomosExtraCounts(rates, date) {
-    try {
-      const raw = rates && rates["momos_counts_" + date];
-      const obj = raw ? JSON.parse(raw) : {};
-      return (obj && typeof obj === "object") ? obj : {};
-    } catch (e) { return {}; }
-  }
-  function saveMomosMeta(key, value) {
-    return call("saveMomosHisabRate", { payload:{ key, value } });
-  }
+  const PLATE_RATE_KEYS = { paneer: "plate_paneer", veg: "plate_veg" };
 
   async function renderMomosHisab() {
     const date = currentDate();
@@ -928,8 +897,6 @@
     const countsUnknown = dayCache.loadFailed && !dayCache.counts;
     const paneerInit = dayCache.counts ? dayCache.counts.paneer : "";
     const vegInit = dayCache.counts ? dayCache.counts.veg : "";
-    const momosVarieties = getMomosVarieties(rates);
-    const extraCounts = (dayCache.counts && dayCache.counts.extra) || getMomosExtraCounts(rates, date);
 
     c.innerHTML = `
       <div class="card">
@@ -956,23 +923,25 @@
         <div class="table-scroll">
           <table>
             <thead><tr><th>मोमोज़</th><th class="num">बने (पीस)</th><th class="num">प्लेट</th><th class="num">₹/प्लेट</th><th class="num">कीमत ₹</th></tr></thead>
-            <tbody id="momosPlateRows">
-              ${momosVarieties.map(v => {
-                const count = v.fixed ? (v.id === "paneer" ? paneerInit : vegInit) : (Number(extraCounts[v.id]) || "");
-                const rate = v.fixed ? plateRate(v.id) : (Number(rates["plate_" + v.id]) || 0);
-                return `<tr data-variety-id="${esc(v.id)}">
-                  <td class="name-cell">${esc(v.name)} ${v.fixed ? '' : `<button type="button" class="icon-btn danger mh-delete-variety" title="हटाएँ" data-id="${esc(v.id)}">×</button>`}</td>
-                  <td class="num"><input type="number" class="mini mh-count" min="0" step="1" value="${count}" placeholder="${countsUnknown ? '…' : '0'}" ${countsUnknown ? 'disabled' : ''}></td>
-                  <td class="num mh-plates">0</td>
-                  <td class="num"><input type="number" class="mini mh-plate-rate" min="0" step="1" value="${rate}"></td>
-                  <td class="num mh-cost">₹0</td>
-                </tr>`;
-              }).join("")}
+            <tbody>
+              <tr>
+                <td class="name-cell">पनीर</td>
+                <td class="num"><input type="number" class="mini" id="mhPaneer" min="0" step="1" value="${paneerInit}" placeholder="${countsUnknown ? '…' : '0'}" ${countsUnknown ? 'disabled' : ''}></td>
+                <td class="num" id="plPaneerPlates">0</td>
+                <td class="num"><input type="number" class="mini" id="plPaneer" min="0" step="1" value="${plateRate("paneer")}"></td>
+                <td class="num" id="plPaneerSales">₹0</td>
+              </tr>
+              <tr>
+                <td class="name-cell">वेज</td>
+                <td class="num"><input type="number" class="mini" id="mhVeg" min="0" step="1" value="${vegInit}" placeholder="${countsUnknown ? '…' : '0'}" ${countsUnknown ? 'disabled' : ''}></td>
+                <td class="num" id="plVegPlates">0</td>
+                <td class="num"><input type="number" class="mini" id="plVeg" min="0" step="1" value="${plateRate("veg")}"></td>
+                <td class="num" id="plVegSales">₹0</td>
+              </tr>
             </tbody>
             <tfoot><tr class="total-row"><td colspan="4">मोमोज़ की कुल कीमत</td><td class="num" id="plSalesTotal">₹0</td></tr></tfoot>
           </table>
         </div>
-        <button type="button" class="add-row" id="addMomosVarietyBtn">＋ मोमोज़ की नई वैरायटी जोड़ें</button>
         <p class="save-status" id="mhStatus"></p>
         <p class="save-status" id="plStatus"></p>
       </div>
@@ -1015,25 +984,26 @@
     const fmtPlates = n => String(+(n / PIECES_PER_PLATE).toFixed(2));
 
     function recalc(fromUser) {
-      const extra = {};
-      let sales = 0;
-      momosVarieties.forEach(v => {
-        const tr = tbody.parentElement.querySelector(`tr[data-variety-id="${v.id}"]`);
-        if (!tr) return;
-        const count = parseInt(tr.querySelector(".mh-count").value, 10) || 0;
-        const rate = parseFloat(tr.querySelector(".mh-plate-rate").value) || 0;
-        if (!v.fixed) extra[v.id] = count;
-        dayCache.rates["plate_" + v.id] = rate;
-        const cost = (count / PIECES_PER_PLATE) * rate;
-        sales += cost;
-        tr.querySelector(".mh-plates").textContent = fmtPlates(count);
-        tr.querySelector(".mh-cost").textContent = money(cost);
-      });
+      const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
+      const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
+      const paneerRate = parseFloat(document.getElementById("plPaneer").value) || 0;
+      const vegRate = parseFloat(document.getElementById("plVeg").value) || 0;
 
-      const paneer = parseInt(tbody.querySelector('tr[data-variety-id="paneer"] .mh-count').value, 10) || 0;
-      const veg = parseInt(tbody.querySelector('tr[data-variety-id="veg"] .mh-count').value, 10) || 0;
-      if (fromUser === true || dayCache.counts) dayCache.counts = { paneer, veg, extra };
+      // गिनती और प्लेट रेट याद रखो (टैब बदलकर लौटने पर बने रहें)
+      if (fromUser === true || dayCache.counts) dayCache.counts = { paneer, veg };
+      dayCache.rates.plate_paneer = paneerRate;
+      dayCache.rates.plate_veg = vegRate;
       refreshReceived();
+
+      // मोमोज़ की कीमत = (पनीर ÷ 10) × पनीर रेट + (वेज ÷ 10) × वेज रेट
+      const paneerSales = (paneer / PIECES_PER_PLATE) * paneerRate;
+      const vegSales = (veg / PIECES_PER_PLATE) * vegRate;
+      const sales = paneerSales + vegSales;
+
+      document.getElementById("plPaneerPlates").textContent = fmtPlates(paneer);
+      document.getElementById("plVegPlates").textContent = fmtPlates(veg);
+      document.getElementById("plPaneerSales").textContent = money(paneerSales);
+      document.getElementById("plVegSales").textContent = money(vegSales);
       document.getElementById("plSalesTotal").textContent = money(sales);
 
       // सामान का अनुमान (रेफ़रेंस)
@@ -1052,43 +1022,30 @@
     }
 
     let mhSaveTimer = null;
-    function autoSaveCounts() {
+    function queueCountsSave(paneer, veg) {
       clearTimeout(mhSaveTimer);
-      const statusEl = document.getElementById("mhStatus");
-      if (statusEl) { statusEl.textContent = "सेव हो रहा है…"; statusEl.classList.remove("err"); }
-
       mhSaveTimer = setTimeout(async () => {
-        const paneer = parseInt(tbody.querySelector('tr[data-variety-id="paneer"] .mh-count').value, 10) || 0;
-        const veg = parseInt(tbody.querySelector('tr[data-variety-id="veg"] .mh-count').value, 10) || 0;
-        const extra = {};
-        tbody.querySelectorAll('tr[data-variety-id]').forEach(tr => {
-          const id = tr.getAttribute("data-variety-id");
-          if (id !== "paneer" && id !== "veg") {
-            extra[id] = parseInt(tr.querySelector(".mh-count").value, 10) || 0;
-          }
-        });
-
         try {
-          const result = await call("saveMomosHisabEntry", {
-            payload: { date, paneerCount: paneer, vegCount: veg, extraCounts: extra }
-          });
-          if (dayCache.counts) dayCache.counts = { paneer, veg, extra };
-          if (result && result.sales !== undefined) dayCache.backendSales = Number(result.sales) || 0;
-          if (statusEl) { statusEl.textContent = "✓ सेव हो गया"; statusEl.classList.remove("err"); }
-          updateHeader();
+          await call("saveMomosHisabEntry", { payload: { date, paneerCount: paneer, vegCount: veg } });
+          const el = document.getElementById("mhStatus");
+          if (el) { el.textContent = "✓ सेव हो गया"; el.classList.remove("err"); }
         } catch (e) {
-          if (statusEl) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
+          const el = document.getElementById("mhStatus");
+          if (el) { el.textContent = "⚠ " + e.message; el.classList.add("err"); }
         }
       }, 700);
     }
-
+    function autoSaveCounts() {
+      const statusEl = document.getElementById("mhStatus");
+      if (statusEl) { statusEl.textContent = "सेव हो रहा है…"; statusEl.classList.remove("err"); }
+      // कीमत turant पकड़ लो — टैब बदल जाने पर भी ये save पूरा होना चाहिए
+      const paneer = parseInt(document.getElementById("mhPaneer").value, 10) || 0;
+      const veg = parseInt(document.getElementById("mhVeg").value, 10) || 0;
+      queueCountsSave(paneer, veg);
+    }
     if (!countsUnknown) {
-      tbody.querySelectorAll(".mh-count").forEach(inp => {
-        inp.addEventListener("input", () => {
-          recalc(true);
-          autoSaveCounts();
-        });
-      });
+      document.getElementById("mhPaneer").addEventListener("input", () => { recalc(true); autoSaveCounts(); });
+      document.getElementById("mhVeg").addEventListener("input", () => { recalc(true); autoSaveCounts(); });
     }
 
     const reloadBtn = document.getElementById("reloadCountsBtn");
@@ -1099,7 +1056,7 @@
         const entryRes = await withTimeout(safeCall("getMomosHisabEntry", { date }), 15000);
         if (date !== dayCache.date) return;   // इस बीच तारीख बदल गई
         if (entryRes && (entryRes.paneerCount !== undefined || entryRes.vegCount !== undefined)) {
-          dayCache.counts = { paneer: Number(entryRes.paneerCount) || 0, veg: Number(entryRes.vegCount) || 0, extra: (entryRes.extraCounts && typeof entryRes.extraCounts === "object") ? entryRes.extraCounts : {} };
+          dayCache.counts = { paneer: Number(entryRes.paneerCount) || 0, veg: Number(entryRes.vegCount) || 0 };
           dayCache.loadFailed = false;
           updateHeader();
           renderMomosHisabBody();
@@ -1128,13 +1085,6 @@
         lines.push(x.label + ": " + (x.v === null ? "—" : "₹" + Math.round(x.v).toLocaleString("en-IN")));
       });
       const momosCost = momosCostFor(dayCache);
-      if (dayCache.counts) {
-        const allV = getMomosVarieties(dayCache.rates);
-        allV.forEach(v => {
-          const count = v.fixed ? (v.id === "paneer" ? dayCache.counts.paneer : dayCache.counts.veg) : ((dayCache.counts.extra || {})[v.id] || 0);
-          if (count) lines.push(v.name + ": " + count + " पीस / " + (count / PIECES_PER_PLATE).toFixed(2) + " प्लेट");
-        });
-      }
       lines.push("मोमोज़ (प्लेट रेट): " + (momosCost === null ? "—" : "₹" + Math.round(momosCost).toLocaleString("en-IN")));
       if (r && r.expense !== null) lines.push("कुल खर्च: ₹" + Math.round(r.expense).toLocaleString("en-IN"));
       lines.push("");
@@ -1155,13 +1105,11 @@
       window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank");
     });
 
-    // किसी भी वैरायटी का प्लेट रेट बदलो तो backend में सेव।
-    tbody.querySelectorAll(".mh-plate-rate").forEach(inp => {
+    // प्लेट का रेट बदलो तो backend में अपने-आप सेव
+    [["plPaneer", "paneer"], ["plVeg", "veg"]].forEach(([id, kind]) => {
+      const inp = document.getElementById(id);
       let t = null;
       inp.addEventListener("input", () => {
-        const tr = inp.closest("tr");
-        const id = tr.getAttribute("data-variety-id");
-        const key = PLATE_RATE_KEYS[id] || ("plate_" + id);
         recalc();
         const statusEl = document.getElementById("plStatus");
         statusEl.textContent = "रेट सेव हो रहा है…";
@@ -1169,57 +1117,10 @@
         clearTimeout(t);
         t = setTimeout(async () => {
           try {
-            await saveMomosMeta(key, parseFloat(inp.value) || 0);
+            await call("saveMomosHisabRate", { payload: { key: PLATE_RATE_KEYS[kind], value: parseFloat(inp.value) || 0 } });
             statusEl.textContent = "✓ रेट सेव हो गया";
           } catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
         }, 600);
-      });
-    });
-
-    // नई वैरायटी जोड़ना / हटाना — backend भी अब इन्हें अलग से manage करता है।
-    document.getElementById("addMomosVarietyBtn").addEventListener("click", async () => {
-      const name = prompt("नई मोमोज़ वैरायटी का नाम लिखें:");
-      if (!name || !name.trim()) return;
-      const clean = name.trim();
-      const current = getMomosVarieties(rates);
-      if (current.some(v => v.name.toLowerCase() === clean.toLowerCase())) {
-        alert("यह वैरायटी पहले से मौजूद है।");
-        return;
-      }
-
-      const statusEl = document.getElementById("mhStatus");
-      statusEl.textContent = "वैरायटी सेव हो रही है…";
-      try {
-        const result = await call("addMomosHisabVariety", { payload: { name: clean } });
-        if (!result || !result.ok) throw new Error((result && result.error) || "वैरायटी सेव नहीं हुई");
-        rates[MOMOS_VARIETIES_KEY] = JSON.stringify(result.varieties || []);
-        statusEl.textContent = "✓ वैरायटी जुड़ गई";
-        renderMomosHisabBody();
-      } catch (e) {
-        statusEl.textContent = "⚠ " + e.message;
-        statusEl.classList.add("err");
-      }
-    });
-
-    tbody.querySelectorAll(".mh-delete-variety").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const id = btn.getAttribute("data-id");
-        const v = getMomosVarieties(rates).find(x => x.id === id);
-        if (!v || !confirm(`"${v.name}" को हटाना है? पुराने रिकॉर्ड सुरक्षित रहेंगे, लेकिन आगे यह वैरायटी नहीं दिखेगी।`)) return;
-
-        const statusEl = document.getElementById("mhStatus");
-        statusEl.textContent = "वैरायटी हटाई जा रही है…";
-        try {
-          const result = await call("deleteMomosHisabVariety", { payload: { id } });
-          if (!result || !result.ok) throw new Error((result && result.error) || "वैरायटी हटाई नहीं गई");
-          rates[MOMOS_VARIETIES_KEY] = JSON.stringify(result.varieties || []);
-          delete rates["plate_" + id];
-          statusEl.textContent = "✓ वैरायटी हट गई";
-          renderMomosHisabBody();
-        } catch (e) {
-          statusEl.textContent = "⚠ " + e.message;
-          statusEl.classList.add("err");
-        }
       });
     });
 
