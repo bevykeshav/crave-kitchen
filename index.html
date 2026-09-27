@@ -179,7 +179,7 @@
     const params = Object.assign({ action }, extra || {});
     if (params.payload) params.payload = JSON.stringify(params.payload);
     const result = await jsonp(params);
-    if (/^(save|add|update|toggle|delete)/.test(action) && result && result.ok === false) {
+    if (/^(save|add|update|toggle|delete)/.test(action) && result && (result.ok === false || result.error)) {
       scheduleHeaderRefresh();
       throw new Error(result.error || "सेव नहीं हो पाया");
     }
@@ -395,6 +395,7 @@
       try {
         await call("savePayment", { payload: { date, cash, online } });
         statusEl.textContent = "✓ सेव हो गया";
+        scheduleHeaderRefresh();
       } catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
     }, 600);
   }
@@ -567,7 +568,7 @@
         });
       });
       try {
-        await call("saveEntries", { section, payload: { date, entries } });
+        const saved = await call("saveEntries", { section, payload: { date, entries } });
         entries.forEach(e => {
           if (e.rate > 0 && Number(persistedRate(e.itemId)) !== e.rate) rememberRate(e.itemId, e.rate);
         });
@@ -666,7 +667,7 @@
       document.querySelectorAll(".we-amount").forEach(inp => {
         entries.push({ itemId: inp.getAttribute("data-id"), itemName: inp.getAttribute("data-name"), amount: parseFloat(inp.value) || 0 });
       });
-      try { await call("saveWorkExpense", { payload: { date, entries } }); statusEl.textContent = "✓ सेव हो गया"; }
+      try { await call("saveWorkExpense", { payload: { date, entries } }); statusEl.textContent = "✓ सेव हो गया"; scheduleHeaderRefresh(); }
       catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
     });
 
