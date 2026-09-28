@@ -143,6 +143,7 @@
     <button class="tab-btn" data-tab="workexpense">Work Expense</button>
     <button class="tab-btn" data-tab="attendance">Attendance</button>
     <button class="tab-btn" data-tab="momoshisab">रोज़ का हिसाब</button>
+    <button class="tab-btn" data-tab="stock">Stock / Material</button>
     <button class="tab-btn" data-tab="others">Others</button>
   </div>
 
@@ -150,7 +151,7 @@
 </div>
 
 <script>
-  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwX8N0oNwCs5ANqaKyWDVZi4aCccBjMxq6uXmH3dLoo_V_Ift3-okEhsyvNR5U2kTwN/exec";
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzAn2anBO1U38hECJ3D9zAX9qYJzPwF8uN7-BxM7Of1zj8QaUorNBI3NC7cuSrQ8ln1/exec";
 
   // ---------- helpers ----------
   function todayStr() { const d=new Date(); const tz=d.getTimezoneOffset()*60000; return new Date(d-tz).toISOString().slice(0,10); }
@@ -213,6 +214,7 @@
     // पुरानी तारीख का render पहले चलाने से duplicate requests और गलत data दिखता था।
     onDateChange();
     renderActiveTab();
+    loadPayment();
   });
 
   function currentDate() { return document.getElementById("mainDate").value || todayStr(); }
@@ -227,9 +229,6 @@
   // गिनती पता न हो तो null
   function momosCostFor(d) {
     if (!d) return null;
-    // Header ke liye Daily_Summary me already saved sales use karo.
-    // Isse startup par Momos_Hisab_Entries dobara read karne ki zarurat nahi padti.
-    if (Number.isFinite(Number(d.sales))) return Number(d.sales) || 0;
     if (Array.isArray(d.salesEntries)) return d.salesEntries.reduce((sum,e)=>sum+(Number(e.total)||0),0);
     if (!d.counts) return null;
     return (d.counts.paneer / PIECES_PER_PLATE) * plateRateFrom(d.rates, "paneer")
@@ -241,11 +240,10 @@
     const date = currentDate();
     if (!dayCache || dayCache.date !== date || paymentLoadedFor !== date) return null;
     const received = receivedNow();
-    const otherExpense = dayCache.totalExpense;
-    const momos = momosCostFor(dayCache);
-    if (momos === null) return { received, otherExpense, momos: null, expense: null, pl: null };
-    const expense = otherExpense + momos;
-    return { received, otherExpense, momos, expense, pl: received - expense };
+    const exactExpense = Number(dayCache.totalExpense);
+    const materialCost = dayCache.stock && Number(dayCache.stock.materialCost) >= 0 ? Number(dayCache.stock.materialCost) : null;
+    if (!Number.isFinite(exactExpense) || materialCost === null) return { received, otherExpense: exactExpense, momos: materialCost, expense: null, pl: null };
+    return { received, otherExpense: exactExpense, momos: materialCost, expense: exactExpense, pl: received - exactExpense };
   }
   let headerSeq = 0;
   let headerTimer = null;
@@ -263,7 +261,7 @@
     const entryRes = result && result.entry;
     const salesEntries = Array.isArray(result && result.salesEntries) ? result.salesEntries : null;
     const varieties = Array.isArray(result && result.varieties) ? result.varieties : [];
-    const labelKeys = [["Daily का सामान","daily"],["मोमोज़ बनाने का सामान","momosSaaman"],["Packing","packing"],["Work Expense","workExpense"],["Others","others"]];
+    const labelKeys = [["सामान की खरीद — Daily","daily"],["सामान की खरीद — Momos","momosSaaman"],["Packing की खरीद","packing"],["Material actually consumed","materialCost"],["Work Expense","workExpense"],["Others","others"]];
     let expenseLines, missing, totalExpense;
     if (summaryRes && summaryRes.breakdown) {
       expenseLines = labelKeys.map(([label,key])=>({label,v:summaryRes.breakdown[key]}));
@@ -276,7 +274,7 @@
     if (entryRes && (entryRes.paneerCount !== undefined || entryRes.vegCount !== undefined)) {
       counts={paneer:Number(entryRes.paneerCount)||0,veg:Number(entryRes.vegCount)||0}; loadFailed=false;
     }
-    return {rates,expenseLines,missing,totalExpense,counts,loadFailed,sales:Number(summaryRes && summaryRes.sales)||0,totalReceived:Number(summaryRes && summaryRes.totalReceived)||0,cash:Number(summaryRes && summaryRes.cash)||0,online:Number(summaryRes && summaryRes.online)||0,salesEntries:salesEntries||[],varieties};
+    return {rates,expenseLines,missing,totalExpense,counts,loadFailed,salesEntries:salesEntries||[],varieties};
   }
 
   function applyDayData(date, data) {
@@ -286,21 +284,7 @@
       if (Array.isArray(dayCache.varieties) && dayCache.varieties.length) data.varieties=dayCache.varieties;
       Object.keys(dayCache.rates||{}).forEach(k=>{ if(dayCache.rates[k]!==undefined) data.rates[k]=dayCache.rates[k]; });
     }
-    dayCache=Object.assign({date},data);
-    // getDayData me cash/online already aa rahe hain; extra getPayment request ki zarurat nahi.
-    if (data && data.cash !== undefined) document.getElementById("cashInput").value = data.cash || "";
-    if (data && data.online !== undefined) document.getElementById("onlineInput").value = data.online || "";
-    paymentLoadedFor = date;
-    updateHeader();
-  }
-
-  async function refreshHeaderFast() {
-    const date = currentDate();
-    const seq = ++headerSeq;
-    // Header ko sirf summary/rates chahiye; counts baad me Momos tab kholne par load honge.
-    const data = await loadDayData(date, false);
-    if (seq !== headerSeq || date !== currentDate()) return;
-    applyDayData(date, data);
+    dayCache=Object.assign({date},data); updateHeader();
   }
 
   async function refreshHeader() {
@@ -319,7 +303,7 @@
     dayCache = null;
     paymentLoadedFor = null;
     updateHeader();
-    if (activeTab !== "momoshisab") refreshHeaderFast();
+    if (activeTab !== "momoshisab") refreshHeader();
   }
 
   function updateHeader() {
@@ -368,7 +352,7 @@
       momos: () => renderQtySection("momos", "मोमोज़ बनाने का सामान"),
       packing: () => renderQtySection("packing", "Packing"),
       workexpense: renderWorkExpense, attendance: renderAttendance,
-      momoshisab: renderMomosHisab, others: renderOthers
+      momoshisab: renderMomosHisab, stock: renderStock, others: renderOthers
     };
     (renderers[activeTab] || renderers.daily)();
   }
@@ -409,7 +393,9 @@
   function onPaymentTyped() { paymentLoadedFor = currentDate(); refreshReceived(); }
   document.getElementById("cashInput").addEventListener("input", onPaymentTyped);
   document.getElementById("onlineInput").addEventListener("input", onPaymentTyped);
-  // कैश + ऑनलाइन = कुल बिक्री। getDayData से values already load हो जाती हैं।
+  loadPayment();
+
+  // कैश + ऑनलाइन = कुल बिक्री। इससे हेडर और "रोज़ का हिसाब" टैब का लाभ/हानि बनता है
   function receivedNow() {
     return (parseFloat(document.getElementById("cashInput").value) || 0)
          + (parseFloat(document.getElementById("onlineInput").value) || 0);
@@ -573,7 +559,7 @@
       try {
         const saved = await call("saveEntries", { section, payload: { date, entries } });
         await renderActiveTab();
-        await refreshHeaderFast();
+        await refreshHeader();
         entries.forEach(e => {
           if (e.rate > 0 && Number(persistedRate(e.itemId)) !== e.rate) rememberRate(e.itemId, e.rate);
         });
@@ -672,7 +658,7 @@
       document.querySelectorAll(".we-amount").forEach(inp => {
         entries.push({ itemId: inp.getAttribute("data-id"), itemName: inp.getAttribute("data-name"), amount: parseFloat(inp.value) || 0 });
       });
-      try { await call("saveWorkExpense", { payload: { date, entries } }); await renderActiveTab(); await refreshHeader(); statusEl.textContent = "✓ सेव हो गया"; }
+      try { await call("saveWorkExpense", { payload: { date, entries } }); statusEl.textContent = "✓ सेव हो गया"; scheduleHeaderRefresh(); }
       catch (e) { statusEl.textContent = "⚠ " + e.message; statusEl.classList.add("err"); }
     });
 
@@ -877,6 +863,83 @@
   const PLATE_DEFAULT = { paneer: 80, veg: 60 };
   const PLATE_RATE_KEYS = { paneer: "plate_paneer", veg: "plate_veg" };
 
+  async function renderStock() {
+    const date = currentDate();
+    const c = document.getElementById("tabContent");
+    c.innerHTML = '<div class="card"><p class="muted">स्टॉक लोड हो रहा है…</p></div>';
+    try {
+      // एक ही backend request में settings + stock report. पहले दोनों अलग requests
+      // और report के अंदर फिर settings पढ़ी जाती थी, जिससे Stock tab अनावश्यक रूप से धीमा था।
+      const report = await call("getStockReport", { date }) || {items:[], materialCost:0};
+      const items = report.items || [];
+      const byKey = {}; items.forEach(x => byKey[x.key] = x);
+      c.innerHTML = `
+        <div class="card">
+          <h2>Stock / Material</h2>
+          <p class="hint">Opening stock एक बार भरो। Daily/Momos/Packing tabs में की गई खरीद यहाँ अपने-आप जुड़ जाएगी। Momos की quantity से consumption अपने-आप घटेगा।</p>
+          <div class="stat-grid">
+            <div class="stat"><div class="label">आज material cost</div><div class="value" id="stockDayCost">${money(report.materialCost||0)}</div></div>
+            <div class="stat"><div class="label">आज कुल momos</div><div class="value" id="stockMomoCount">0</div></div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>सामान</th><th class="num">Opening</th><th class="num">Opening ₹</th><th class="num">Recipe qty</th><th class="num">आज लगा</th><th class="num">Closing</th><th class="num">Avg ₹/unit</th></tr></thead>
+              <tbody id="stockBody"></tbody>
+            </table>
+          </div>
+          <button class="primary" id="saveStockBtn">Opening / Rate / Recipe सेव करें</button>
+          <p class="save-status" id="stockStatus"></p>
+        </div>
+        <div class="card">
+          <h2>आज की खरीद</h2>
+          <p class="hint">यह रकम profit में सीधे expense नहीं बनेगी। यह stock में जाएगी; profit में सिर्फ़ आज इस्तेमाल हुए material की cost आएगी।</p>
+          <div class="breakdown-list">
+            <div><span>Daily / Momos / Packing purchase</span><span>ऊपर संबंधित tabs में दर्ज है</span></div>
+            <div class="strong"><span>आज का actual material cost</span><span>${money(report.materialCost||0)}</span></div>
+          </div>
+        </div>`;
+      const tbody = document.getElementById("stockBody");
+      tbody.innerHTML = items.map(it => {
+        const r = byKey[it.key] || {};
+        const recipeText = it.key === "paneer" ? `${it.recipeQty} g / ${it.recipeBase} paneer` : `${it.recipeQty} g / ${it.recipeBase} momos`;
+        return `<tr data-key="${esc(it.key)}">
+          <td class="name-cell">${esc(it.name)}<div class="muted" style="font-size:11px;">${esc(it.unit)}</div></td>
+          <td class="num"><input type="number" class="stock-open" min="0" step="0.01" value="${it.openingQty||0}"></td>
+          <td class="num"><input type="number" class="stock-rate" min="0" step="0.01" value="${it.openingRate||0}"></td>
+          <td class="num"><input type="number" class="stock-recipe" min="0" step="0.01" value="${it.recipeQty||0}" title="${esc(recipeText)}"></td>
+          <td class="num">${formatQty(r.dayConsumed||0,it.unit)}</td>
+          <td class="num">${formatQty(r.closingQty||0,it.unit)}</td>
+          <td class="num">${money(r.rate||0)}</td>
+        </tr>`;
+      }).join("");
+      let totalMomos=0;
+      try {
+        const d = await call("getMomosDailySales", {date});
+        totalMomos = (d.entries||[]).reduce((s,e)=>s+(Number(e.pieces)||0),0);
+      } catch(e) {}
+      document.getElementById("stockMomoCount").textContent = totalMomos.toLocaleString("en-IN");
+      document.getElementById("saveStockBtn").addEventListener("click", async () => {
+        const st=document.getElementById("stockStatus"); st.textContent="सेव हो रहा है…"; st.classList.remove("err");
+        try {
+          const items = Array.from(document.querySelectorAll("#stockBody tr[data-key]")).map(tr => ({
+            key: tr.getAttribute("data-key"),
+            openingQty: parseFloat(tr.querySelector(".stock-open").value)||0,
+            openingRate: parseFloat(tr.querySelector(".stock-rate").value)||0,
+            recipeQty: parseFloat(tr.querySelector(".stock-recipe").value)||0
+          }));
+          await call("saveStockSettings", {payload:{items}});
+          st.textContent="✓ सेव हो गया"; await renderStock(); await refreshHeader();
+        } catch(e) { st.textContent="⚠ "+e.message; st.classList.add("err"); }
+      });
+    } catch(e) { showLoadError(c); }
+  }
+
+  function formatQty(v, unit) {
+    const n=Number(v)||0;
+    if (unit === "किलो" || unit === "लीटर") return n.toFixed(3).replace(/0+$/,'').replace(/\.$/,'')+' '+unit;
+    return Math.round(n).toLocaleString("en-IN")+' '+unit;
+  }
+
   async function renderMomosHisab() {
     const date = currentDate();
     const c = document.getElementById("tabContent");
@@ -905,7 +968,7 @@
     c.innerHTML = `
       <div class="card">
         <h2>रोज़ का हिसाब</h2>
-        <p class="hint">${esc(date)} — कुल बिक्री − कुल खर्च = लाभ / हानि।</p>
+        <p class="hint">${esc(date)} — बिक्री − असली इस्तेमाल हुए material + labour/other खर्च = लाभ / हानि। खरीद को दोबारा खर्च नहीं गिना जाता।</p>
         <div class="stat-grid">
           <div class="stat"><div class="label">कुल बिक्री</div><div class="value" id="dhSales">₹0</div></div>
           <div class="stat clay"><div class="label">कुल खर्च</div><div class="value" id="dhExpense">…</div></div>
@@ -952,7 +1015,7 @@
         <h2>आज का खर्च</h2>
         <table><tbody>
           ${expenseLines.map(x=>`<tr><td class="name-cell">${esc(x.label)}</td><td class="num">${x.v===null?'—':money(x.v)}</td></tr>`).join('')}
-          <tr><td class="name-cell">मोमोज़ (प्लेट रेट × प्लेट)</td><td class="num" id="dhMomosCost">—</td></tr>
+          <tr><td class="name-cell">आज इस्तेमाल हुआ material</td><td class="num" id="dhMomosCost">—</td></tr>
         </tbody><tfoot><tr class="total-row"><td>कुल खर्च</td><td class="num" id="dhExpenseTotal">…</td></tr></tfoot></table>
       </div>
 
@@ -1005,13 +1068,16 @@
     c.querySelectorAll('.ms-price').forEach(inp=>{let t=null; inp.addEventListener('change',()=>{const tr=inp.closest('tr'),id=tr.getAttribute('data-variety-id'),price=parseFloat(inp.value)||0; clearTimeout(t); t=setTimeout(async()=>{try{await call('updateMomosVariety',{payload:{id,price}}); const v=(dayCache.varieties||[]).find(x=>x.id===id); if(v)v.price=price;}catch(e){}},300);});});
     tbody.querySelectorAll('.mh-rate').forEach(inp=>{let t=null; inp.addEventListener('input',()=>{rates[inp.getAttribute('data-key')]=parseFloat(inp.value)||0; recalc(); clearTimeout(t); t=setTimeout(()=>call('saveMomosHisabRate',{payload:{key:inp.getAttribute('data-key'),value:rates[inp.getAttribute('data-key')]}}).catch(()=>{}),600);});});
 
-    const textReport=()=>{const r=computePL(); const lines=['📋 Crave Kitchen — रोज़ का हिसाब',date,'','मोमोज़ बिक्री: '+money(momosCostFor(dayCache)||0),'कुल अन्य खर्च: '+money(dayCache.totalExpense||0),'कुल खर्च: '+(r&&r.expense!==null?money(r.expense):'—'),r&&r.pl!==null?((r.pl<0?'हानि':'लाभ')+': '+money(Math.abs(r.pl))):'लाभ/हानि: —']; return lines.join('\n');};
+    const textReport=()=>{const r=computePL(); const lines=['📋 Crave Kitchen — रोज़ का हिसाब',date,'','कुल बिक्री: '+money(r? r.received : 0),'आज इस्तेमाल हुआ material: '+money(dayCache.stock?dayCache.stock.materialCost:0),'Labour + Other: '+money((dayCache.totalExpense||0)-(dayCache.stock?dayCache.stock.materialCost:0)),'कुल खर्च: '+(r&&r.expense!==null?money(r.expense):'—'),r&&r.pl!==null?((r.pl<0?'हानि':'लाभ')+': '+money(Math.abs(r.pl))):'लाभ/हानि: —']; return lines.join('\n');};
     document.getElementById('shareWhatsappBtn').addEventListener('click',async()=>{const text=textReport(); if(navigator.share){try{await navigator.share({text});return;}catch(e){}} window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');});
     recalc();
   }
 
+  // Initial load: render the active tab once. रोज़ का हिसाब already loads the
+  // complete day payload, so calling refreshHeader() here would duplicate the
+  // slowest request on every page open.
   renderActiveTab();
-  refreshHeaderFast();
+  if (activeTab !== "momoshisab") refreshHeader();
 </script>
 </body>
 </html>
