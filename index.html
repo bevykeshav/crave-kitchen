@@ -151,7 +151,7 @@
 </div>
 
 <script>
-  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzAn2anBO1U38hECJ3D9zAX9qYJzPwF8uN7-BxM7Of1zj8QaUorNBI3NC7cuSrQ8ln1/exec";
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwX8N0oNwCs5ANqaKyWDVZi4aCccBjMxq6uXmH3dLoo_V_Ift3-okEhsyvNR5U2kTwN/exec";
 
   // ---------- helpers ----------
   function todayStr() { const d=new Date(); const tz=d.getTimezoneOffset()*60000; return new Date(d-tz).toISOString().slice(0,10); }
@@ -238,11 +238,16 @@
   // लाभ / हानि = (कैश + ऑनलाइन) − कुल खर्च;  कुल खर्च = बाकी टैब्स का जोड़ + मोमोज़ की कीमत
   function computePL() {
     const date = currentDate();
-    if (!dayCache || dayCache.date !== date || paymentLoadedFor !== date) return null;
-    const received = receivedNow();
+    if (!dayCache || dayCache.date !== date) return null;
+    // Use the live input when payment has loaded; otherwise use the value returned
+    // by getDayData so the header can calculate immediately without another request.
+    const received = paymentLoadedFor === date ? receivedNow() : (Number(dayCache.totalReceived) || 0);
     const exactExpense = Number(dayCache.totalExpense);
-    const materialCost = dayCache.stock && Number(dayCache.stock.materialCost) >= 0 ? Number(dayCache.stock.materialCost) : null;
-    if (!Number.isFinite(exactExpense) || materialCost === null) return { received, otherExpense: exactExpense, momos: materialCost, expense: null, pl: null };
+    const materialCost = dayCache.stock && Number(dayCache.stock.materialCost) >= 0
+      ? Number(dayCache.stock.materialCost) : null;
+    if (!Number.isFinite(exactExpense) || materialCost === null) {
+      return { received, otherExpense: exactExpense, momos: materialCost, expense: null, pl: null };
+    }
     return { received, otherExpense: exactExpense, momos: materialCost, expense: exactExpense, pl: received - exactExpense };
   }
   let headerSeq = 0;
@@ -274,7 +279,44 @@
     if (entryRes && (entryRes.paneerCount !== undefined || entryRes.vegCount !== undefined)) {
       counts={paneer:Number(entryRes.paneerCount)||0,veg:Number(entryRes.vegCount)||0}; loadFailed=false;
     }
-    return {rates,expenseLines,missing,totalExpense,counts,loadFailed,salesEntries:salesEntries||[],varieties};
+    return {
+      rates,
+      expenseLines,
+      missing,
+      totalExpense,
+      totalReceived: Number(summaryRes && summaryRes.totalReceived) || 0,
+      sales: Number(summaryRes && summaryRes.sales) || 0,
+      counts,
+      loadFailed,
+      salesEntries: salesEntries || [],
+      varieties,
+      stock: (result && result.stock) || (summaryRes && summaryRes.stock) || {materialCost:0,items:[]}
+    };
+  }
+
+  function syncDayHisabBreakdown() {
+    if (activeTab !== "momoshisab" || !dayCache) return;
+    const labels = {
+      "सामान की खरीद — Daily": "daily",
+      "सामान की खरीद — Momos": "momosSaaman",
+      "Packing की खरीद": "packing",
+      "Material actually consumed": "materialCost",
+      "Work Expense": "workExpense",
+      "Others": "others"
+    };
+    const rows = document.querySelectorAll("#tabContent .breakdown-list div");
+    rows.forEach(row => {
+      const span = row.querySelector("span");
+      const valueSpan = row.querySelectorAll("span")[1];
+      if (!span || !valueSpan) return;
+      const key = labels[span.textContent.trim()];
+      if (!key) return;
+      const line = (dayCache.expenseLines || []).find(x => x.label === span.textContent.trim());
+      if (line) valueSpan.textContent = line.v == null ? "—" : money(line.v);
+    });
+    const stockCost = dayCache.stock ? Number(dayCache.stock.materialCost) || 0 : 0;
+    const stockEl = document.getElementById("dhMomosCost");
+    if (stockEl) stockEl.textContent = money(stockCost);
   }
 
   function applyDayData(date, data) {
@@ -284,7 +326,7 @@
       if (Array.isArray(dayCache.varieties) && dayCache.varieties.length) data.varieties=dayCache.varieties;
       Object.keys(dayCache.rates||{}).forEach(k=>{ if(dayCache.rates[k]!==undefined) data.rates[k]=dayCache.rates[k]; });
     }
-    dayCache=Object.assign({date},data); updateHeader();
+    dayCache=Object.assign({date},data); updateHeader(); syncDayHisabBreakdown();
   }
 
   async function refreshHeader() {
@@ -329,7 +371,8 @@
     const isLoss = r.pl < 0;
     label.textContent = dayWord + (isLoss ? " की हानि" : " का लाभ");
     value.textContent = money(Math.abs(r.pl));
-    sub.textContent = dayCache.missing.length ? "⚠ खर्च अधूरा हो सकता है" : "";
+    const warning = dayCache.missing && dayCache.missing.length ? " • ⚠ खर्च अधूरा हो सकता है" : "";
+    sub.textContent = "बिक्री " + money(r.received) + " • खर्च " + money(r.expense) + warning;
     box.classList.toggle("loss", isLoss);
   }
 
@@ -908,7 +951,7 @@
           <td class="num"><input type="number" class="stock-rate" min="0" step="0.01" value="${it.openingRate||0}"></td>
           <td class="num"><input type="number" class="stock-recipe" min="0" step="0.01" value="${it.recipeQty||0}" title="${esc(recipeText)}"></td>
           <td class="num">${formatQty(r.dayConsumed||0,it.unit)}</td>
-          <td class="num">${formatQty(r.closingQty||0,it.unit)}</td>
+          <td class="num" style="${Number(r.closingQty||0) < -0.0005 ? 'color:var(--clay);font-weight:700;' : ''}">${formatQty(r.closingQty||0,it.unit)}${Number(r.closingQty||0) < -0.0005 ? ' ⚠' : ''}</td>
           <td class="num">${money(r.rate||0)}</td>
         </tr>`;
       }).join("");
