@@ -916,7 +916,7 @@
       let totalMomos=0;
       try {
         const d = await call("getMomosDailySales", {date});
-        totalMomos = (d.entries||[]).reduce((s,e)=>s+(Number(e.pieces)||0),0);
+        const salesItems = (d && (d.items || d.entries)) || []; totalMomos = salesItems.reduce((s,e)=>s+(Number(e.pieces)||0),0);
       } catch(e) {}
       document.getElementById("stockMomoCount").textContent = totalMomos.toLocaleString("en-IN");
       document.getElementById("saveStockBtn").addEventListener("click", async () => {
