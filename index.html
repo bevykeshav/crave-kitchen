@@ -346,7 +346,7 @@
   async function refreshHeader() {
     const date = currentDate();
     const seq = ++headerSeq;
-    const data = await loadDayData(date, true);
+    const data = await loadDayData(date, false);
     if (seq !== headerSeq || date !== currentDate()) return;
     applyDayData(date, data);
   }
@@ -1150,7 +1150,7 @@
   // slowest request on every page open.
   applyCachedDay();
   renderActiveTab();
-  if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 300);
+  if (activeTab !== "momoshisab") refreshHeader();
 </script>
 </body>
 </html>
