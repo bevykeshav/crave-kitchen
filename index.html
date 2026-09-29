@@ -908,14 +908,14 @@
       c.innerHTML = `
         <div class="card">
           <h2>Stock / Material</h2>
-          <p class="hint">Opening stock एक बार भरो। Daily/Momos/Packing tabs में की गई खरीद यहाँ अपने-आप जुड़ जाएगी। Momos की quantity से consumption अपने-आप घटेगा।</p>
+          <p class="hint">Opening stock एक बार भरो। Daily/Momos/Packing tabs में की गई खरीद यहाँ अपने-आप जुड़ जाएगी। Momos की quantity से consumption अपने-आप घटेगा। Recipe = इतने ग्राम सामान 1200 पीस (पनीर: 615 पीस) में लगता है; 0 छोड़ोगे तो standard recipe चलेगी।</p>
           <div class="stat-grid">
             <div class="stat"><div class="label">आज material cost</div><div class="value" id="stockDayCost">${money(report.materialCost||0)}</div></div>
             <div class="stat"><div class="label">आज कुल momos</div><div class="value" id="stockMomoCount">0</div></div>
           </div>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>सामान</th><th class="num">Opening</th><th class="num">Opening ₹</th><th class="num">Recipe qty</th><th class="num">आज लगा</th><th class="num">Closing</th><th class="num">Avg ₹/unit</th></tr></thead>
+              <thead><tr><th>सामान</th><th class="num">Opening</th><th class="num">Opening ₹</th><th class="num">Recipe (ग्राम)</th><th class="num">आज लगा</th><th class="num">Closing</th><th class="num">Avg ₹/unit</th></tr></thead>
               <tbody id="stockBody"></tbody>
             </table>
           </div>
@@ -924,9 +924,11 @@
         </div>
         <div class="card">
           <h2>आज की खरीद</h2>
-          <p class="hint">यह रकम profit में सीधे expense नहीं बनेगी। यह stock में जाएगी; profit में सिर्फ़ आज इस्तेमाल हुए material की cost आएगी।</p>
+          <p class="hint">यह रकम profit में सीधे expense नहीं बनेगी। यह stock में जाएगी; profit में सिर्फ़ आज इस्तेमाल हुए material की cost आएगी। जो सामान इस stock list में नहीं है (petrol, packing आदि) उसकी खरीद उसी दिन सीधे खर्च गिनी जाती है।</p>
           <div class="breakdown-list">
             <div><span>Daily / Momos / Packing purchase</span><span>ऊपर संबंधित tabs में दर्ज है</span></div>
+            <div><span>Stock से इस्तेमाल (momos × recipe)</span><span>${money(report.stockCost||0)}</span></div>
+            ${(report.directItems||[]).map(x=>`<div><span>सीधा खर्च — ${esc(x.name)}</span><span>${money(x.total)}</span></div>`).join('')}
             <div class="strong"><span>आज का actual material cost</span><span>${money(report.materialCost||0)}</span></div>
           </div>
         </div>`;
@@ -944,12 +946,7 @@
           <td class="num">${money(r.rate||0)}</td>
         </tr>`;
       }).join("");
-      let totalMomos=0;
-      try {
-        const d = await call("getMomosDailySales", {date});
-        totalMomos = (d.items||[]).reduce((s,e)=>s+(Number(e.pieces)||0),0);
-      } catch(e) {}
-      document.getElementById("stockMomoCount").textContent = totalMomos.toLocaleString("en-IN");
+      document.getElementById("stockMomoCount").textContent = (Number(report.dayPieces)||0).toLocaleString("en-IN");
       document.getElementById("saveStockBtn").addEventListener("click", async () => {
         const st=document.getElementById("stockStatus"); st.textContent="सेव हो रहा है…"; st.classList.remove("err");
         try {
