@@ -293,7 +293,7 @@
     const entryRes = result && result.entry;
     const salesEntries = Array.isArray(result && result.salesEntries) ? result.salesEntries : null;
     const varieties = Array.isArray(result && result.varieties) ? result.varieties : [];
-    const labelKeys = [["सामान की खरीद — Daily","daily"],["सामान की खरीद — Momos","momosSaaman"],["Packing की खरीद","packing"],["Material actually consumed","materialCost"],["Work Expense","workExpense"],["Others","others"]];
+    const labelKeys = [["सामान की खरीद — Daily","daily"],["सामान की खरीद — Momos","momosSaaman"],["Packing की खरीद","packing"],["आज इस्तेमाल हुआ Material","materialCost"],["Work Expense","workExpense"],["Others","others"]];
     let expenseLines, missing, totalExpense;
     if (summaryRes && summaryRes.breakdown) {
       expenseLines = labelKeys.map(([label,key])=>({label,v:summaryRes.breakdown[key]}));
@@ -469,12 +469,12 @@
         salesEl.textContent = "…";
         document.getElementById("dhExpense").textContent = "…";
         document.getElementById("dhPL").textContent = "…";
-        document.getElementById("dhMomosCost").textContent = "…";
+        const dhMomosCostEl = document.getElementById("dhMomosCost"); if (dhMomosCostEl) dhMomosCostEl.textContent = "…";
         document.getElementById("dhExpenseTotal").textContent = "…";
         if (hintEl) hintEl.textContent = "";
       } else {
         salesEl.textContent = money(r.received);
-        document.getElementById("dhMomosCost").textContent = r.momos === null ? "—" : money(r.momos);
+        const dhMomosCostEl2 = document.getElementById("dhMomosCost"); if (dhMomosCostEl2) dhMomosCostEl2.textContent = r.momos === null ? "—" : money(r.momos);
         document.getElementById("dhExpense").textContent = r.expense === null ? "—" : money(r.expense);
         document.getElementById("dhExpenseTotal").textContent = r.expense === null ? "—" : money(r.expense);
         if (r.pl === null) {
@@ -928,65 +928,86 @@
     const c = document.getElementById("tabContent");
     c.innerHTML = '<div class="card"><p class="muted">स्टॉक लोड हो रहा है…</p></div>';
     try {
-      // एक ही backend request में settings + stock report. पहले दोनों अलग requests
-      // और report के अंदर फिर settings पढ़ी जाती थी, जिससे Stock tab अनावश्यक रूप से धीमा था।
       const report = await call("getStockReport", { date }) || {items:[], materialCost:0};
       if (report.error) throw new Error(report.error);
       const items = report.items || [];
-      const byKey = {}; items.forEach(x => byKey[x.key] = x);
       c.innerHTML = `
         <div class="card">
           <h2>Stock / Material</h2>
-          <p class="hint">Opening stock एक बार भरो। Daily/Momos/Packing tabs में की गई खरीद यहाँ अपने-आप जुड़ जाएगी। Momos की quantity से consumption अपने-आप घटेगा। Recipe = इतने ग्राम सामान 1200 पीस (पनीर: 615 पीस) में लगता है; 0 छोड़ोगे तो standard recipe चलेगी।</p>
+          <p class="hint">यहाँ Recipe या पुरानी खरीद अपने-आप नहीं जोड़ी जाएगी। सुबह कितना बचा था, आज कितना नया आया और आज कितना लगा — ये तुम खुद भरो। बचा हुआ stock और उसकी कीमत अपने-आप निकलेगी। अगले दिन सुबह का stock पिछली तारीख के Closing से आएगा।</p>
           <div class="stat-grid">
-            <div class="stat"><div class="label">आज material cost</div><div class="value" id="stockDayCost">${money(report.materialCost||0)}</div></div>
-            <div class="stat"><div class="label">आज कुल momos</div><div class="value" id="stockMomoCount">0</div></div>
+            <div class="stat"><div class="label">आज का Material Cost</div><div class="value" id="stockDayCost">${money(report.materialCost||0)}</div></div>
+            <div class="stat"><div class="label">कुल बचे माल की कीमत</div><div class="value" id="stockTotalValue">${money(report.totalClosingValue||0)}</div></div>
           </div>
-          <div class="table-scroll">
+          <div class="add-form" style="margin-top:10px;">
+            <label style="font-weight:700;">आज का Material Cost ₹</label>
+            <input type="number" id="manualMaterialCost" min="0" step="1" value="${Number(report.materialCost)||0}" placeholder="₹0" style="width:130px;">
+            <button class="secondary" id="saveMaterialCostBtn">Material Cost Save</button>
+            <span class="save-status" id="materialCostStatus"></span>
+          </div>
+          <div class="table-scroll" style="margin-top:12px;">
             <table>
-              <thead><tr><th>सामान</th><th class="num">Opening</th><th class="num">Opening ₹</th><th class="num">Recipe (ग्राम)</th><th class="num">आज लगा</th><th class="num">Closing</th><th class="num">Avg ₹/unit</th></tr></thead>
+              <thead><tr><th>सामान</th><th class="num">सुबह बचा</th><th class="num">आज लाया</th><th class="num">आज लगा</th><th class="num">बचा</th><th class="num">Rate ₹/unit</th><th class="num">बचे माल की कीमत</th></tr></thead>
               <tbody id="stockBody"></tbody>
             </table>
           </div>
-          <button class="primary" id="saveStockBtn">Opening / Rate / Recipe सेव करें</button>
+          <button class="primary" id="saveStockBtn">Stock Save करें</button>
           <p class="save-status" id="stockStatus"></p>
-        </div>
-        <div class="card">
-          <h2>आज की खरीद</h2>
-          <p class="hint">यह रकम profit में सीधे expense नहीं बनेगी। यह stock में जाएगी; profit में सिर्फ़ आज इस्तेमाल हुए material की cost आएगी। जो सामान इस stock list में नहीं है (petrol, packing आदि) उसकी खरीद उसी दिन सीधे खर्च गिनी जाती है।</p>
-          <div class="breakdown-list">
-            <div><span>Daily / Momos / Packing purchase</span><span>ऊपर संबंधित tabs में दर्ज है</span></div>
-            <div><span>Stock से इस्तेमाल (momos × recipe)</span><span>${money(report.stockCost||0)}</span></div>
-            ${(report.directItems||[]).map(x=>`<div><span>सीधा खर्च — ${esc(x.name)}</span><span>${money(x.total)}</span></div>`).join('')}
-            <div class="strong"><span>आज का actual material cost</span><span>${money(report.materialCost||0)}</span></div>
-          </div>
         </div>`;
       const tbody = document.getElementById("stockBody");
-      tbody.innerHTML = items.map(it => {
-        const r = byKey[it.key] || {};
-        const recipeText = it.key === "paneer" ? `${it.recipeQty} g / ${it.recipeBase} paneer` : `${it.recipeQty} g / ${it.recipeBase} momos`;
-        return `<tr data-key="${esc(it.key)}">
-          <td class="name-cell">${esc(it.name)}<div class="muted" style="font-size:11px;">${esc(it.unit)}</div></td>
-          <td class="num"><input type="number" class="stock-open" min="0" step="0.01" value="${it.openingQty||0}"></td>
-          <td class="num"><input type="number" class="stock-rate" min="0" step="0.01" value="${it.openingRate||0}"></td>
-          <td class="num"><input type="number" class="stock-recipe" min="0" step="0.01" value="${it.recipeQty||0}" title="${esc(recipeText)}"></td>
-          <td class="num">${formatQty(r.dayConsumed||0,it.unit)}</td>
-          <td class="num">${formatQty(r.closingQty||0,it.unit)}</td>
-          <td class="num">${money(r.rate||0)}</td>
-        </tr>`;
-      }).join("");
-      document.getElementById("stockMomoCount").textContent = (Number(report.dayPieces)||0).toLocaleString("en-IN");
+      tbody.innerHTML = items.map(it => `<tr data-key="${esc(it.key)}">
+        <td class="name-cell">${esc(it.name)}<div class="muted" style="font-size:11px;">${esc(it.unit)}</div></td>
+        <td class="num"><input type="number" class="stock-morning" min="0" step="0.001" value="${Number(it.morningQty)||0}"></td>
+        <td class="num"><input type="number" class="stock-brought" min="0" step="0.001" value="${Number(it.broughtQty)||0}"></td>
+        <td class="num"><input type="number" class="stock-used" min="0" step="0.001" value="${Number(it.usedQty)||0}"></td>
+        <td class="num stock-closing">${formatQty(it.closingQty||0,it.unit)}</td>
+        <td class="num"><input type="number" class="stock-rate" min="0" step="0.01" value="${Number(it.rate)||0}"></td>
+        <td class="num stock-value">${money(it.closingValue||0)}</td>
+      </tr>`).join("");
+
+      function recalcStockRow(tr) {
+        const morning = parseFloat(tr.querySelector(".stock-morning").value) || 0;
+        const brought = parseFloat(tr.querySelector(".stock-brought").value) || 0;
+        const used = parseFloat(tr.querySelector(".stock-used").value) || 0;
+        const rate = parseFloat(tr.querySelector(".stock-rate").value) || 0;
+        const closing = Math.max(0, morning + brought - used);
+        tr.querySelector(".stock-closing").textContent = formatQty(closing, tr.querySelector("td:first-child .muted").textContent);
+        tr.querySelector(".stock-value").textContent = money(closing * rate);
+        return closing * rate;
+      }
+      function recalcStockAll() {
+        let total = 0;
+        document.querySelectorAll("#stockBody tr[data-key]").forEach(tr => { total += recalcStockRow(tr); });
+        document.getElementById("stockTotalValue").textContent = money(total);
+      }
+      document.querySelectorAll("#stockBody input").forEach(inp => inp.addEventListener("input", recalcStockAll));
+      recalcStockAll();
+
       document.getElementById("saveStockBtn").addEventListener("click", async () => {
         const st=document.getElementById("stockStatus"); st.textContent="सेव हो रहा है…"; st.classList.remove("err");
         try {
-          const items = Array.from(document.querySelectorAll("#stockBody tr[data-key]")).map(tr => ({
+          const stockItems = Array.from(document.querySelectorAll("#stockBody tr[data-key]")).map(tr => ({
             key: tr.getAttribute("data-key"),
-            openingQty: parseFloat(tr.querySelector(".stock-open").value)||0,
-            openingRate: parseFloat(tr.querySelector(".stock-rate").value)||0,
-            recipeQty: parseFloat(tr.querySelector(".stock-recipe").value)||0
+            morningQty: parseFloat(tr.querySelector(".stock-morning").value)||0,
+            broughtQty: parseFloat(tr.querySelector(".stock-brought").value)||0,
+            usedQty: parseFloat(tr.querySelector(".stock-used").value)||0,
+            rate: parseFloat(tr.querySelector(".stock-rate").value)||0
           }));
-          await call("saveStockSettings", {payload:{items}});
-          st.textContent="✓ सेव हो गया"; await renderStock(); await refreshHeader();
+          await call("saveStockSettings", {payload:{date, items:stockItems}});
+          st.textContent="✓ Stock सेव हो गया";
+          await renderStock();
+          await refreshHeader();
+        } catch(e) { st.textContent="⚠ "+e.message; st.classList.add("err"); }
+      });
+
+      document.getElementById("saveMaterialCostBtn").addEventListener("click", async () => {
+        const st=document.getElementById("materialCostStatus"); st.textContent="सेव हो रहा है…"; st.classList.remove("err");
+        try {
+          const value = parseFloat(document.getElementById("manualMaterialCost").value)||0;
+          await call("saveMaterialCost", {payload:{date, value}});
+          st.textContent="✓ सेव हो गया";
+          document.getElementById("stockDayCost").textContent = money(value);
+          await refreshHeader();
         } catch(e) { st.textContent="⚠ "+e.message; st.classList.add("err"); }
       });
     } catch(e) { showLoadError(c, typeof e !== "undefined" ? e : null); }
@@ -1074,7 +1095,6 @@
         <h2>आज का खर्च</h2>
         <table><tbody>
           ${expenseLines.map(x=>`<tr><td class="name-cell">${esc(x.label)}</td><td class="num">${x.v===null?'—':money(x.v)}</td></tr>`).join('')}
-          <tr><td class="name-cell">आज इस्तेमाल हुआ material</td><td class="num" id="dhMomosCost">—</td></tr>
         </tbody><tfoot><tr class="total-row"><td>कुल खर्च</td><td class="num" id="dhExpenseTotal">…</td></tr></tfoot></table>
       </div>
 
@@ -1127,60 +1147,8 @@
     c.querySelectorAll('.ms-price').forEach(inp=>{let t=null; inp.addEventListener('change',()=>{const tr=inp.closest('tr'),id=tr.getAttribute('data-variety-id'),price=parseFloat(inp.value)||0; clearTimeout(t); t=setTimeout(async()=>{try{await call('updateMomosVariety',{payload:{id,price}}); const v=(dayCache.varieties||[]).find(x=>x.id===id); if(v)v.price=price;}catch(e){}},300);});});
     tbody.querySelectorAll('.mh-rate').forEach(inp=>{let t=null; inp.addEventListener('input',()=>{rates[inp.getAttribute('data-key')]=parseFloat(inp.value)||0; recalc(); clearTimeout(t); t=setTimeout(()=>call('saveMomosHisabRate',{payload:{key:inp.getAttribute('data-key'),value:rates[inp.getAttribute('data-key')]}}).catch(()=>{}),600);});});
 
-    function fmtReportEntries(title, entries){
-      const arr=Array.isArray(entries)?entries.filter(e=>e&&(Number(e.quantity)||Number(e.amount)||Number(e.total))):[];
-      if(!arr.length) return [`*${title}*`,'• कोई entry नहीं'];
-      return [`*${title}*`,...arr.map(e=>{
-        const name=e.itemName||e.name||'सामान';
-        const qty=e.quantity!==undefined?`${Number(e.quantity)||0} ${e.unit||''}`.trim():'';
-        const amount=Number(e.total!==undefined?e.total:e.amount)||0;
-        return `• ${name}${qty?` — ${qty}`:''} — ${money(amount)}`;
-      })];
-    }
-    function fmtMomosSales(entries){
-      const arr=Array.isArray(entries)?entries.filter(e=>Number(e.pieces)||0):[];
-      if(!arr.length) return ['*Momos Sales*','• कोई entry नहीं'];
-      return ['*Momos Sales*',...arr.map(e=>`• ${e.varietyName||e.name||'Momos'} — ${Number(e.pieces)||0} पीस — ${money(Number(e.total)||0)}`)];
-    }
-    async function buildWhatsappReport(){
-      const r=computePL(), date=currentDate();
-      let daily=[],momos=[],packing=[],work=[],others=[],sales=[];
-      try{
-        const results=await Promise.all([
-          call('getEntries',{section:'daily',date}),
-          call('getEntries',{section:'momos',date}),
-          call('getEntries',{section:'packing',date}),
-          call('getWorkExpense',{date}),
-          call('getOthers',{date}),
-          call('getMomosDailySales',{date})
-        ]);
-        daily=results[0]?.entries||[]; momos=results[1]?.entries||[]; packing=results[2]?.entries||[];
-        work=results[3]?.entries||[]; others=results[4]?.entries||[]; sales=results[5]?.items||[];
-      }catch(e){throw new Error('आज की detail list लोड नहीं हो पाई: '+e.message);}
-      const material=Number(dayCache.stock?.materialCost)||0;
-      return [
-        '📋 *Crave Kitchen — रोज़ का हिसाब*',`📅 ${date}`,'',
-        '💰 *बिक्री*',`• Cash: ${money(dayCache.summary?.cash||0)}`,`• Online: ${money(dayCache.summary?.online||0)}`,`• Total Sales: ${money(r?.received||0)}`,'',
-        ...fmtMomosSales(sales),'',
-        ...fmtReportEntries('Daily का सामान — आज क्या आया',daily),'',
-        ...fmtReportEntries('Momos बनाने का सामान — आज क्या आया',momos),'',
-        ...fmtReportEntries('Packing — आज क्या आया',packing),'',
-        ...fmtReportEntries('Work Expense',work),'',
-        ...fmtReportEntries('Others',others),'',
-        '💵 *खर्च*',`• आज इस्तेमाल हुआ Material: ${money(material)}`,`• Work Expense: ${money(dayCache.summary?.workExpense||0)}`,`• Others: ${money(dayCache.summary?.others||0)}`,`• *कुल खर्च: ${r&&r.expense!==null?money(r.expense):'—'}*`,'',
-        r&&r.pl!==null?`📈 *${r.pl<0?'हानि':'लाभ'}: ${money(Math.abs(r.pl))}*`:'📈 *लाभ/हानि: —*'
-      ].join('\n');
-    }
-    document.getElementById('shareWhatsappBtn').addEventListener('click',async()=>{
-      const btn=document.getElementById('shareWhatsappBtn'),old=btn.textContent;
-      btn.disabled=true;btn.textContent='रिपोर्ट तैयार हो रही है…';
-      try{
-        const text=await buildWhatsappReport();
-        if(navigator.share){try{await navigator.share({text});return;}catch(e){}}
-        window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');
-      }catch(e){alert(e.message||'रिपोर्ट तैयार नहीं हो पाई');}
-      finally{btn.disabled=false;btn.textContent=old;}
-    });
+    const textReport=()=>{const r=computePL(); const lines=['📋 Crave Kitchen — रोज़ का हिसाब',date,'','कुल बिक्री: '+money(r? r.received : 0),'आज इस्तेमाल हुआ material: '+money(dayCache.stock?dayCache.stock.materialCost:0),'Labour + Other: '+money((dayCache.totalExpense||0)-(dayCache.stock?dayCache.stock.materialCost:0)),'कुल खर्च: '+(r&&r.expense!==null?money(r.expense):'—'),r&&r.pl!==null?((r.pl<0?'हानि':'लाभ')+': '+money(Math.abs(r.pl))):'लाभ/हानि: —']; return lines.join('\n');};
+    document.getElementById('shareWhatsappBtn').addEventListener('click',async()=>{const text=textReport(); if(navigator.share){try{await navigator.share({text});return;}catch(e){}} window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');});
     recalc();
   }
 
