@@ -214,7 +214,7 @@
     // पुरानी तारीख का render पहले चलाने से duplicate requests और गलत data दिखता था।
     onDateChange();
     renderActiveTab();
-    loadPayment();
+    // Payment is included in the day-summary response; avoid a second API request.
   });
 
   function currentDate() { return document.getElementById("mainDate").value || todayStr(); }
@@ -280,15 +280,22 @@
   function applyDayData(date, data) {
     if (dayCache && dayCache.date === date) {
       if (dayCache.counts) { data.counts=dayCache.counts; data.loadFailed=false; }
-      // A just-saved dynamic Momos sales list must not be overwritten by an
-      // older/legacy getDayData response that returns an empty salesEntries array.
-      if (Array.isArray(dayCache.salesEntries) && dayCache.salesEntries.length) {
-        if (!Array.isArray(data.salesEntries) || !data.salesEntries.length) data.salesEntries=dayCache.salesEntries;
-      }
+      if (Array.isArray(dayCache.salesEntries)) data.salesEntries=dayCache.salesEntries;
       if (Array.isArray(dayCache.varieties) && dayCache.varieties.length) data.varieties=dayCache.varieties;
       Object.keys(dayCache.rates||{}).forEach(k=>{ if(dayCache.rates[k]!==undefined) data.rates[k]=dayCache.rates[k]; });
     }
-    dayCache=Object.assign({date},data); updateHeader();
+    dayCache=Object.assign({date},data);
+    // getDayData already contains cash/online; use it instead of a separate getPayment call.
+    const summary = data && data.summary;
+    if (summary && (summary.cash !== undefined || summary.online !== undefined)) {
+      const cash = Number(summary.cash) || 0, online = Number(summary.online) || 0;
+      const ci = document.getElementById("cashInput"), oi = document.getElementById("onlineInput");
+      if (ci && document.activeElement !== ci) ci.value = cash || "";
+      if (oi && document.activeElement !== oi) oi.value = online || "";
+      paymentLoadedFor = date;
+      refreshReceived();
+    }
+    updateHeader();
   }
 
   async function refreshHeader() {
@@ -307,7 +314,7 @@
     dayCache = null;
     paymentLoadedFor = null;
     updateHeader();
-    if (activeTab !== "momoshisab") refreshHeader();
+    if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 700);
   }
 
   function updateHeader() {
@@ -327,10 +334,7 @@
     if (r.pl === null) {
       label.textContent = dayWord + " का लाभ / हानि";
       value.textContent = "—";
-      const hasDynamicMomos = dayCache && Array.isArray(dayCache.salesEntries) && dayCache.salesEntries.some(e => Number(e.pieces) > 0);
-      sub.textContent = dayCache && dayCache.loadFailed
-        ? "गिनती लोड नहीं हो पाई"
-        : (hasDynamicMomos ? "मॉमोज़ की बिक्री सेव है, खर्च/भुगतान पूरा होने पर लाभ दिखेगा" : "मोमोज़ की गिनती डालो");
+      sub.textContent = dayCache && dayCache.loadFailed ? "गिनती लोड नहीं हो पाई" : "मोमोज़ की गिनती डालो";
       return;
     }
     const isLoss = r.pl < 0;
@@ -351,7 +355,7 @@
   });
   document.querySelector('.tab-btn[data-tab="daily"]').classList.add("active");
 
-  function renderActiveTab() {
+  async function renderActiveTab() {
     const c = document.getElementById("tabContent");
     c.innerHTML = '<div class="card"><p class="muted">लोड हो रहा है…</p></div>';
     const renderers = {
@@ -361,7 +365,7 @@
       workexpense: renderWorkExpense, attendance: renderAttendance,
       momoshisab: renderMomosHisab, stock: renderStock, others: renderOthers
     };
-    (renderers[activeTab] || renderers.daily)();
+    return await (renderers[activeTab] || renderers.daily)();
   }
 
   // ===================================================================
@@ -400,7 +404,7 @@
   function onPaymentTyped() { paymentLoadedFor = currentDate(); refreshReceived(); }
   document.getElementById("cashInput").addEventListener("input", onPaymentTyped);
   document.getElementById("onlineInput").addEventListener("input", onPaymentTyped);
-  loadPayment();
+  // Payment is populated from getDayData; no separate startup request.
 
   // कैश + ऑनलाइन = कुल बिक्री। इससे हेडर और "रोज़ का हिसाब" टैब का लाभ/हानि बनता है
   function receivedNow() {
@@ -461,21 +465,32 @@
   async function renderQtySection(section, title) {
     const date = currentDate();
     const c = document.getElementById("tabContent");
-    let masterRes, entriesRes, ratesRes;
+    let masterRes, entriesRes;
     try {
-      [masterRes, entriesRes, ratesRes] = await Promise.all([
-        call("getMaster", { section }), call("getEntries", { section, date }), safeCall("getMomosHisabRates")
+      // Only the two requests required to draw this tab block first paint.
+      [masterRes, entriesRes] = await Promise.all([
+        call("getMaster", { section }), call("getEntries", { section, date })
       ]);
     } catch (e) {
       showLoadError(c);
       return;
     }
+    // Global rates are only a convenience for remembered per-item prices.
+    // Fetch them in the background; localStorage is used immediately.
+    let ratesRes = null;
+    safeCall("getMomosHisabRates").then(r => {
+      if (r && r.rates) {
+        try { localStorage.setItem("crave_global_rates", JSON.stringify(r.rates)); } catch(e) {}
+      }
+    });
     const items = (masterRes.items || []).filter(it => it.active);
     const existing = {};
     (entriesRes.entries || []).forEach(e => { existing[String(e.itemId).trim()] = e; });
 
     // ₹/यूनिट हर दिन बना रहता है; मात्रा हर तारीख की अलग होती है (नई तारीख पर खाली)
-    const savedRates = (ratesRes && ratesRes.rates) || {};
+    let savedRates = {};
+    try { savedRates = JSON.parse(localStorage.getItem("crave_global_rates") || "{}") || {}; } catch(e) {}
+    if (ratesRes && ratesRes.rates) Object.assign(savedRates, ratesRes.rates);
     const persistedRate = id => {
       const v = Number(savedRates[itemRateKey(section, id)]);
       if (v > 0) return v;
@@ -919,11 +934,7 @@
           <td class="num">${money(r.rate||0)}</td>
         </tr>`;
       }).join("");
-      let totalMomos=0;
-      try {
-        const d = await call("getMomosDailySales", {date});
-        totalMomos = (d.entries||[]).reduce((s,e)=>s+(Number(e.pieces)||0),0);
-      } catch(e) {}
+      const totalMomos = Number(report.totalMomos) || 0;
       document.getElementById("stockMomoCount").textContent = totalMomos.toLocaleString("en-IN");
       document.getElementById("saveStockBtn").addEventListener("click", async () => {
         const st=document.getElementById("stockStatus"); st.textContent="सेव हो रहा है…"; st.classList.remove("err");
@@ -1061,10 +1072,7 @@
       try {
         const entries=getRows();
         await call('saveMomosDailySales',{payload:{date,entries}});
-        dayCache.salesEntries=entries.map(e=>Object.assign({},e,{
-          total:(Number(e.pieces)||0)/(Number(e.piecesPerPlate)||10)*(Number(e.price)||0)
-        })).filter(e=>e.pieces>0);
-        dayCache.loadFailed=false;
+        dayCache.salesEntries=entries.map(e=>Object.assign({},e,{total:(Number(e.pieces)||0)/(Number(e.piecesPerPlate)||10)*(Number(e.price)||0)})).filter(e=>e.pieces>0);
         st.textContent='✓ सेव हो गया';
         updateHeader();
         scheduleHeaderRefresh();
@@ -1095,7 +1103,8 @@
   // complete day payload, so calling refreshHeader() here would duplicate the
   // slowest request on every page open.
   renderActiveTab();
-  if (activeTab !== "momoshisab") refreshHeader();
+  // Do not compete with the first tab's API calls. Header loads shortly after first paint.
+  if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 1800);
 </script>
 </body>
 </html>
