@@ -158,6 +158,13 @@
   function money(v){ return "₹"+Math.round(Number(v)||0).toLocaleString("en-IN"); }
   function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
+  // ---- jaldi-jaldi tab badalne par atakna band: purane tab ke jawab ignore, aur dekhe hue tab ka data 60s yaad ----
+  const TAB_READS = new Set(["getMaster","getEntries","getWorkExpenseItems","getWorkExpense","getWorkers","getAttendance","getOthers","getStockReport","getMomosDailySales","getMomosVarieties"]);
+  let renderSeq = 0, tabTimer = null;
+  const memo = {};
+  function memoClear() { for (const k in memo) delete memo[k]; }
+  const NEVER = () => new Promise(() => {});   // purana (stale) render yahin ruk jaata hai, screen ko chhoota nahi
+
   let jsonpCounter = 0;
   function jsonp(params) {
     return new Promise((resolve, reject) => {
@@ -179,10 +186,23 @@
   async function call(action, extra) {
     const params = Object.assign({ action }, extra || {});
     if (params.payload) params.payload = JSON.stringify(params.payload);
+    const isRead = TAB_READS.has(action), seq = renderSeq;
+    const key = isRead ? action + "|" + JSON.stringify(params) : null;
+    if (isRead && memo[key] && Date.now() - memo[key].t < 60000) return JSON.parse(memo[key].v);
+    if (!isRead && /^(save|add|update|toggle|delete)/.test(action)) memoClear();
     let result;
-    // padhne wali request pehli baar fail ho (server abhi jaag raha ho) to ek baar apne-aap dobara
-    try { result = await jsonp(params); }
-    catch (err) { if (/^get/.test(action)) result = await jsonp(params); else throw err; }
+    try {
+      // padhne wali request pehli baar fail ho (server abhi jaag raha ho) to ek baar apne-aap dobara
+      try { result = await jsonp(params); }
+      catch (err) { if (/^get/.test(action) && seq === renderSeq) result = await jsonp(params); else throw err; }
+    } catch (err) {
+      if (isRead && seq !== renderSeq) return NEVER();
+      throw err;
+    }
+    if (isRead) {
+      if (result && !result.error) memo[key] = { t: Date.now(), v: JSON.stringify(result) };
+      if (seq !== renderSeq) return NEVER();
+    }
     if (/^(save|add|update|toggle|delete)/.test(action) && result && (result.ok === false || result.error)) {
       scheduleHeaderRefresh();
       throw new Error(result.error || "सेव नहीं हो पाया");
@@ -363,12 +383,16 @@
     btn.addEventListener("click", () => {
       activeTab = btn.getAttribute("data-tab");
       document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
-      renderActiveTab();
+      renderSeq++;
+      document.getElementById("tabContent").innerHTML = '<div class="card"><p class="muted">लोड हो रहा है…</p></div>';
+      clearTimeout(tabTimer);
+      tabTimer = setTimeout(renderActiveTab, 180);
     });
   });
   document.querySelector('.tab-btn[data-tab="daily"]').classList.add("active");
 
   function renderActiveTab() {
+    renderSeq++;
     const c = document.getElementById("tabContent");
     c.innerHTML = '<div class="card"><p class="muted">लोड हो रहा है…</p></div>';
     const renderers = {
@@ -899,6 +923,7 @@
   const PLATE_RATE_KEYS = { paneer: "plate_paneer", veg: "plate_veg" };
 
   async function renderStock() {
+    if (activeTab !== "stock") return;
     const date = currentDate();
     const c = document.getElementById("tabContent");
     c.innerHTML = '<div class="card"><p class="muted">स्टॉक लोड हो रहा है…</p></div>';
@@ -979,6 +1004,7 @@
 
     // बाकी सब टैब्स का खर्च, प्लेट रेट और गिनती — उसी तारीख के लिए
     const data = await loadDayData(date, true);
+    if (activeTab !== "momoshisab") return;
     // इस बीच टैब/तारीख बदल गई हो तो पुराना नतीजा मत दिखाओ
     if (activeTab !== "momoshisab" || date !== currentDate()) return;
     applyDayData(date, data);
