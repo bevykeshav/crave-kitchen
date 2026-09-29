@@ -240,10 +240,11 @@
     const date = currentDate();
     if (!dayCache || dayCache.date !== date || paymentLoadedFor !== date) return null;
     const received = receivedNow();
-    const exactExpense = Number(dayCache.totalExpense);
-    const materialCost = dayCache.stock && Number(dayCache.stock.materialCost) >= 0 ? Number(dayCache.stock.materialCost) : null;
-    if (!Number.isFinite(exactExpense) || materialCost === null) return { received, otherExpense: exactExpense, momos: materialCost, expense: null, pl: null };
-    return { received, otherExpense: exactExpense, momos: materialCost, expense: exactExpense, pl: received - exactExpense };
+    // Daily/Momos/Packing/Work/Others are already combined by the backend
+    // in summary.totalExpense. Do not require a separate stock object here.
+    const expense = Number(dayCache.totalExpense);
+    if (!Number.isFinite(expense)) return { received, otherExpense: 0, momos: null, expense: null, pl: null };
+    return { received, otherExpense: expense, momos: 0, expense, pl: received - expense };
   }
   let headerSeq = 0;
   let headerTimer = null;
