@@ -241,19 +241,6 @@
   });
 
   function currentDate() { return document.getElementById("mainDate").value || todayStr(); }
-  function cleanupOldDayCache() {
-    try {
-      const today = todayStr();
-      const remove = [];
-      for (let i=0; i<localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.indexOf("crave_day_") === 0 && k !== "crave_day_" + today) remove.push(k);
-      }
-      remove.forEach(k => localStorage.removeItem(k));
-    } catch(e) {}
-  }
-  cleanupOldDayCache();
-
 
   // ===================================================================
   // ऊपर हेडर में लाभ / हानि — हर टैब में दिखता है
@@ -346,7 +333,7 @@
   async function refreshHeader() {
     const date = currentDate();
     const seq = ++headerSeq;
-    const data = await loadDayData(date, false);
+    const data = await loadDayData(date, true);
     if (seq !== headerSeq || date !== currentDate()) return;
     applyDayData(date, data);
   }
@@ -950,28 +937,33 @@
       c.innerHTML = `
         <div class="card">
           <h2>Stock / Material</h2>
-          <p class="hint">यहाँ मौजूदा stock रखो। Daily/Momos/Packing में stock वाला सामान डालते ही stock बढ़ेगा। Momos की quantity से recipe के हिसाब से stock अपने-आप घटेगा। नया दिन आते ही पुराना daily transaction हटेगा, लेकिन यह stock बचा रहेगा।</p>
+          <p class="hint">Opening stock और recipe stock के लिए हैं। <b>आज का Material Cost आप खुद भरेंगे</b>; profit/loss में यही amount लिया जाएगा।</p>
           <div class="stat-grid">
             <div class="stat"><div class="label">आज material cost</div><div class="value" id="stockDayCost">${money(report.materialCost||0)}</div></div>
             <div class="stat"><div class="label">आज कुल momos</div><div class="value" id="stockMomoCount">0</div></div>
           </div>
+          <div style="margin:12px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label for="manualMaterialCost"><b>आज का Material Cost ₹</b></label>
+            <input type="number" id="manualMaterialCost" min="0" step="1" value="${Number(report.manualMaterialCost||report.materialCost||0)}" style="width:150px;">
+            <button class="primary" id="saveMaterialCostBtn" type="button">Material Cost Save</button>
+            <span class="save-status" id="materialCostStatus"></span>
+          </div>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>सामान</th><th class="num">Current Stock</th><th class="num">Avg ₹</th><th class="num">Recipe (ग्राम)</th><th class="num">आज लगा</th><th class="num">Closing</th><th class="num">Avg ₹/unit</th></tr></thead>
+              <thead><tr><th>सामान</th><th class="num">Opening</th><th class="num">Opening ₹</th><th class="num">Recipe (ग्राम)</th><th class="num">आज लगा</th><th class="num">Closing</th><th class="num">Avg ₹/unit</th></tr></thead>
               <tbody id="stockBody"></tbody>
             </table>
           </div>
-          <button class="primary" id="saveStockBtn">Current Stock / Rate / Recipe सेव करें</button>
+          <button class="primary" id="saveStockBtn">Opening / Rate / Recipe सेव करें</button>
           <p class="save-status" id="stockStatus"></p>
         </div>
         <div class="card">
           <h2>आज की खरीद</h2>
-          <p class="hint">Stock वाला सामान खरीदने पर stock बढ़ेगा और खरीद दोबारा profit expense नहीं बनेगी। Momos बनाने पर recipe के अनुसार stock घटेगा और इस्तेमाल हुए material की cost profit में आएगी। जो सामान stock list में नहीं है उसकी खरीद उसी दिन direct expense होगी।</p>
+          <p class="hint">यह रकम profit में सीधे expense नहीं बनेगी। यह stock में जाएगी; profit में सिर्फ़ आज इस्तेमाल हुए material की cost आएगी। जो सामान इस stock list में नहीं है (petrol, packing आदि) उसकी खरीद उसी दिन सीधे खर्च गिनी जाती है।</p>
           <div class="breakdown-list">
             <div><span>Daily / Momos / Packing purchase</span><span>ऊपर संबंधित tabs में दर्ज है</span></div>
-            <div><span>Stock से इस्तेमाल (momos × recipe)</span><span>${money(report.stockCost||0)}</span></div>
-            ${(report.directItems||[]).map(x=>`<div><span>सीधा खर्च — ${esc(x.name)}</span><span>${money(x.total)}</span></div>`).join('')}
-            <div class="strong"><span>आज का actual material cost</span><span>${money(report.materialCost||0)}</span></div>
+            <div><span>Manual Material Cost</span><span>${money(report.materialCost||0)}</span></div>
+            <div class="strong"><span>आज का Material Cost</span><span>${money(report.materialCost||0)}</span></div>
           </div>
         </div>`;
       const tbody = document.getElementById("stockBody");
@@ -989,6 +981,21 @@
         </tr>`;
       }).join("");
       document.getElementById("stockMomoCount").textContent = (Number(report.dayPieces)||0).toLocaleString("en-IN");
+      document.getElementById("saveMaterialCostBtn").addEventListener("click", async () => {
+        const st=document.getElementById("materialCostStatus");
+        const cost=Math.max(0, Number(document.getElementById("manualMaterialCost").value)||0);
+        st.textContent="सेव हो रहा है…"; st.classList.remove("err");
+        try {
+          await call("saveMaterialCost", {date, payload:{cost}});
+          st.textContent="✓ सेव हो गया";
+          document.getElementById("stockDayCost").textContent=money(cost);
+          try {
+            const raw=JSON.parse(localStorage.getItem("crave_day_"+date)||"null");
+            if(raw && raw.summary){ raw.summary.breakdown.materialCost=cost; raw.summary.totalExpense=cost+(Number(raw.summary.breakdown.workExpense)||0)+(Number(raw.summary.breakdown.others)||0); raw.summary.profitLoss=(Number(raw.summary.totalReceived)||0)-raw.summary.totalExpense; if(raw.stock) raw.stock.materialCost=cost; localStorage.setItem("crave_day_"+date,JSON.stringify(raw)); }
+          } catch(e) {}
+          await refreshHeader();
+        } catch(e) { st.textContent="Error: "+e.message; st.classList.add("err"); }
+      });
       document.getElementById("saveStockBtn").addEventListener("click", async () => {
         const st=document.getElementById("stockStatus"); st.textContent="सेव हो रहा है…"; st.classList.remove("err");
         try {
@@ -1150,7 +1157,7 @@
   // slowest request on every page open.
   applyCachedDay();
   renderActiveTab();
-  if (activeTab !== "momoshisab") refreshHeader();
+  if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 300);
 </script>
 </body>
 </html>
