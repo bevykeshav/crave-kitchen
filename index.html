@@ -162,7 +162,7 @@
   function jsonp(params) {
     return new Promise((resolve, reject) => {
       const cbName = "jsonp_cb_" + (jsonpCounter++);
-      const timeout = setTimeout(() => { cleanup(); reject(new Error("timeout")); }, 15000);
+      const timeout = setTimeout(() => { cleanup(); reject(new Error("timeout")); }, 30000);
       function cleanup(){ clearTimeout(timeout); delete window[cbName]; if (script.parentNode) script.parentNode.removeChild(script); }
       window[cbName] = (data) => { cleanup(); resolve(data); };
       const qp = Object.assign({}, params, { callback: cbName });
@@ -179,7 +179,10 @@
   async function call(action, extra) {
     const params = Object.assign({ action }, extra || {});
     if (params.payload) params.payload = JSON.stringify(params.payload);
-    const result = await jsonp(params);
+    let result;
+    // padhne wali request pehli baar fail ho (server abhi jaag raha ho) to ek baar apne-aap dobara
+    try { result = await jsonp(params); }
+    catch (err) { if (/^get/.test(action)) result = await jsonp(params); else throw err; }
     if (/^(save|add|update|toggle|delete)/.test(action) && result && (result.ok === false || result.error)) {
       scheduleHeaderRefresh();
       throw new Error(result.error || "सेव नहीं हो पाया");
@@ -196,8 +199,8 @@
   }
   // कोई भी tab लोड होते वक़्त fail हो जाए तो हमेशा के लिए "लोड हो रहा है" पर मत अटको —
   // साफ़ error + दोबारा कोशिश करने का बटन दिखाओ
-  function showLoadError(container) {
-    container.innerHTML = `<div class="card"><p class="warn">⚠ लोड नहीं हो पाया (नेटवर्क या सर्वर की दिक्कत)।</p>
+  function showLoadError(container, err) {
+    container.innerHTML = `<div class="card"><p class="warn">⚠ लोड नहीं हो पाया (नेटवर्क या सर्वर की दिक्कत)।${err && err.message ? " <small>[" + esc(err.message) + "]</small>" : ""}</p>
       <button class="secondary" id="loadRetryBtn">फिर कोशिश करें</button></div>`;
     document.getElementById("loadRetryBtn").addEventListener("click", () => renderActiveTab());
   }
@@ -482,7 +485,7 @@
         call("getMaster", { section }), call("getEntries", { section, date })
       ]);
     } catch (e) {
-      showLoadError(c);
+      showLoadError(c, typeof e !== "undefined" ? e : null);
       return;
     }
     // Global rates are only a convenience for remembered per-item prices.
@@ -642,7 +645,7 @@
       [masterRes, entriesRes] = await Promise.all([
         call("getWorkExpenseItems"), call("getWorkExpense", { date })
       ]);
-    } catch (e) { showLoadError(c); return; }
+    } catch (e) { showLoadError(c, typeof e !== "undefined" ? e : null); return; }
     const items = (masterRes.items || []).filter(it => it.active);
     const existing = {};
     (entriesRes.entries || []).forEach(e => { existing[String(e.itemId).trim()] = e; });
@@ -727,7 +730,7 @@
     let workersRes, attRes;
     try {
       [workersRes, attRes] = await Promise.all([call("getWorkers"), call("getAttendance", { date })]);
-    } catch (e) { showLoadError(c); return; }
+    } catch (e) { showLoadError(c, typeof e !== "undefined" ? e : null); return; }
     const workers = (workersRes.items || []).filter(w => w.active);
     const existing = {};
     (attRes.entries || []).forEach(e => { existing[e.workerId] = e.present; });
@@ -818,7 +821,7 @@
     const date = currentDate();
     const c = document.getElementById("tabContent");
     let res;
-    try { res = await call("getOthers", { date }); } catch (e) { showLoadError(c); return; }
+    try { res = await call("getOthers", { date }); } catch (e) { showLoadError(c, typeof e !== "undefined" ? e : null); return; }
     const entries = res.entries && res.entries.length ? res.entries : [{ name: "", amount: "" }];
 
     c.innerHTML = `
@@ -903,6 +906,7 @@
       // एक ही backend request में settings + stock report. पहले दोनों अलग requests
       // और report के अंदर फिर settings पढ़ी जाती थी, जिससे Stock tab अनावश्यक रूप से धीमा था।
       const report = await call("getStockReport", { date }) || {items:[], materialCost:0};
+      if (report.error) throw new Error(report.error);
       const items = report.items || [];
       const byKey = {}; items.forEach(x => byKey[x.key] = x);
       c.innerHTML = `
@@ -960,7 +964,7 @@
           st.textContent="✓ सेव हो गया"; await renderStock(); await refreshHeader();
         } catch(e) { st.textContent="⚠ "+e.message; st.classList.add("err"); }
       });
-    } catch(e) { showLoadError(c); }
+    } catch(e) { showLoadError(c, typeof e !== "undefined" ? e : null); }
   }
 
   function formatQty(v, unit) {
