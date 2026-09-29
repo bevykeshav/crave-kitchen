@@ -293,7 +293,7 @@
     const entryRes = result && result.entry;
     const salesEntries = Array.isArray(result && result.salesEntries) ? result.salesEntries : null;
     const varieties = Array.isArray(result && result.varieties) ? result.varieties : [];
-    const labelKeys = [["सामान की खरीद — Daily","daily"],["सामान की खरीद — Momos","momosSaaman"],["Packing की खरीद","packing"],["Material actually consumed","materialCost"],["Work Expense","workExpense"],["Others","others"]];
+    const labelKeys = [["सामान की खरीद — Daily","daily"],["सामान की खरीद — Momos","momosSaaman"],["Packing की खरीद","packing"],["Material Cost","materialCost"],["Work Expense","workExpense"],["Others","others"]];
     let expenseLines, missing, totalExpense;
     if (summaryRes && summaryRes.breakdown) {
       expenseLines = labelKeys.map(([label,key])=>({label,v:summaryRes.breakdown[key]}));
@@ -928,85 +928,80 @@
     const c = document.getElementById("tabContent");
     c.innerHTML = '<div class="card"><p class="muted">स्टॉक लोड हो रहा है…</p></div>';
     try {
-      // एक ही backend request में settings + stock report. पहले दोनों अलग requests
-      // और report के अंदर फिर settings पढ़ी जाती थी, जिससे Stock tab अनावश्यक रूप से धीमा था।
       const report = await call("getStockReport", { date }) || {items:[], materialCost:0};
       if (report.error) throw new Error(report.error);
       const items = report.items || [];
-      const byKey = {}; items.forEach(x => byKey[x.key] = x);
       c.innerHTML = `
         <div class="card">
           <h2>Stock / Material</h2>
-          <p class="hint">Opening stock और recipe stock के लिए हैं। <b>आज का Material Cost आप खुद भरेंगे</b>; profit/loss में यही amount लिया जाएगा।</p>
-          <div class="stat-grid">
-            <div class="stat"><div class="label">आज material cost</div><div class="value" id="stockDayCost">${money(report.materialCost||0)}</div></div>
-            <div class="stat"><div class="label">आज कुल momos</div><div class="value" id="stockMomoCount">0</div></div>
-          </div>
-          <div style="margin:12px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <label for="manualMaterialCost"><b>आज का Material Cost ₹</b></label>
-            <input type="number" id="manualMaterialCost" min="0" step="1" value="${Number(report.manualMaterialCost||report.materialCost||0)}" style="width:150px;">
-            <button class="primary" id="saveMaterialCostBtn" type="button">Material Cost Save</button>
-            <span class="save-status" id="materialCostStatus"></span>
+          <p class="hint">यहाँ recipe नहीं भरनी है। सिर्फ़ यह भरो: दिन शुरू होने पर कितना सामान बचा था, आज कितना नया लाए, आज कितना इस्तेमाल हुआ और उसका rate। बाकी stock और बचे माल की कीमत अपने-आप निकलेगी।</p>
+          <div class="material-cost-box">
+            <label><b>आज का Material Cost ₹</b></label>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+              <input type="number" id="manualMaterialCost" min="0" step="1" value="${Number(report.materialCost)||0}" style="max-width:180px;">
+              <button class="primary" id="saveMaterialCostBtn" style="width:auto;padding:10px 18px;">Material Cost Save</button>
+            </div>
+            <p class="save-status" id="materialCostStatus"></p>
           </div>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>सामान</th><th class="num">Opening</th><th class="num">Opening ₹</th><th class="num">Recipe (ग्राम)</th><th class="num">आज लगा</th><th class="num">Closing</th><th class="num">Avg ₹/unit</th></tr></thead>
+              <thead><tr>
+                <th>सामान</th><th class="num">सुबह बचा</th><th class="num">आज लाया</th><th class="num">आज लगा</th><th class="num">बचा</th><th class="num">Rate ₹/kg</th><th class="num">बचे माल की कीमत</th>
+              </tr></thead>
               <tbody id="stockBody"></tbody>
             </table>
           </div>
-          <button class="primary" id="saveStockBtn">Opening / Rate / Recipe सेव करें</button>
+          <button class="primary" id="saveStockBtn">Stock Save करें</button>
           <p class="save-status" id="stockStatus"></p>
-        </div>
-        <div class="card">
-          <h2>आज की खरीद</h2>
-          <p class="hint">यह रकम profit में सीधे expense नहीं बनेगी। यह stock में जाएगी; profit में सिर्फ़ आज इस्तेमाल हुए material की cost आएगी। जो सामान इस stock list में नहीं है (petrol, packing आदि) उसकी खरीद उसी दिन सीधे खर्च गिनी जाती है।</p>
-          <div class="breakdown-list">
-            <div><span>Daily / Momos / Packing purchase</span><span>ऊपर संबंधित tabs में दर्ज है</span></div>
-            <div><span>Manual Material Cost</span><span>${money(report.materialCost||0)}</span></div>
-            <div class="strong"><span>आज का Material Cost</span><span>${money(report.materialCost||0)}</span></div>
-          </div>
+          <p class="hint">उदाहरण: सुबह 10 kg था + आज 5 kg लाए − 3 kg लगा = 12 kg बचा। Rate ₹350/kg हो तो बचे माल की कीमत ₹4,200 दिखेगी।</p>
         </div>`;
+
       const tbody = document.getElementById("stockBody");
-      tbody.innerHTML = items.map(it => {
-        const r = byKey[it.key] || {};
-        const recipeText = it.key === "paneer" ? `${it.recipeQty} g / ${it.recipeBase} paneer` : `${it.recipeQty} g / ${it.recipeBase} momos`;
-        return `<tr data-key="${esc(it.key)}">
-          <td class="name-cell">${esc(it.name)}<div class="muted" style="font-size:11px;">${esc(it.unit)}</div></td>
-          <td class="num"><input type="number" class="stock-open" min="0" step="0.01" value="${it.openingQty||0}"></td>
-          <td class="num"><input type="number" class="stock-rate" min="0" step="0.01" value="${it.openingRate||0}"></td>
-          <td class="num"><input type="number" class="stock-recipe" min="0" step="0.01" value="${it.recipeQty||0}" title="${esc(recipeText)}"></td>
-          <td class="num">${formatQty(r.dayConsumed||0,it.unit)}</td>
-          <td class="num">${formatQty(r.closingQty||0,it.unit)}</td>
-          <td class="num">${money(r.rate||0)}</td>
-        </tr>`;
-      }).join("");
-      document.getElementById("stockMomoCount").textContent = (Number(report.dayPieces)||0).toLocaleString("en-IN");
-      document.getElementById("saveMaterialCostBtn").addEventListener("click", async () => {
-        const st=document.getElementById("materialCostStatus");
-        const cost=Math.max(0, Number(document.getElementById("manualMaterialCost").value)||0);
-        st.textContent="सेव हो रहा है…"; st.classList.remove("err");
-        try {
-          await call("saveMaterialCost", {date, payload:{cost}});
-          st.textContent="✓ सेव हो गया";
-          document.getElementById("stockDayCost").textContent=money(cost);
-          try {
-            const raw=JSON.parse(localStorage.getItem("crave_day_"+date)||"null");
-            if(raw && raw.summary){ raw.summary.breakdown.materialCost=cost; raw.summary.totalExpense=cost+(Number(raw.summary.breakdown.workExpense)||0)+(Number(raw.summary.breakdown.others)||0); raw.summary.profitLoss=(Number(raw.summary.totalReceived)||0)-raw.summary.totalExpense; if(raw.stock) raw.stock.materialCost=cost; localStorage.setItem("crave_day_"+date,JSON.stringify(raw)); }
-          } catch(e) {}
-          await refreshHeader();
-        } catch(e) { st.textContent="Error: "+e.message; st.classList.add("err"); }
-      });
+      tbody.innerHTML = items.map(it => `<tr data-key="${esc(it.key)}">
+        <td class="name-cell">${esc(it.name)}<div class="muted" style="font-size:11px;">${esc(it.unit)}</div></td>
+        <td class="num"><input type="number" class="stock-open" min="0" step="0.001" value="${Number(it.openingQty)||0}"></td>
+        <td class="num"><input type="number" class="stock-brought" min="0" step="0.001" value="${Number(it.broughtQty)||0}"></td>
+        <td class="num"><input type="number" class="stock-used" min="0" step="0.001" value="${Number(it.dayConsumed)||0}"></td>
+        <td class="num stock-closing">${formatQty(it.closingQty,it.unit)}</td>
+        <td class="num"><input type="number" class="stock-rate" min="0" step="0.01" value="${Number(it.rate)||0}"></td>
+        <td class="num stock-value">${money(it.closingValue||0)}</td>
+      </tr>`).join("");
+
+      function recalcStockRow(tr) {
+        const opening = Math.max(0, parseFloat(tr.querySelector('.stock-open').value)||0);
+        const brought = Math.max(0, parseFloat(tr.querySelector('.stock-brought').value)||0);
+        const used = Math.max(0, parseFloat(tr.querySelector('.stock-used').value)||0);
+        const rate = Math.max(0, parseFloat(tr.querySelector('.stock-rate').value)||0);
+        const closing = Math.max(0, opening + brought - Math.min(used, opening+brought));
+        tr.querySelector('.stock-closing').textContent = formatQty(closing,'किलो');
+        tr.querySelector('.stock-value').textContent = money(closing * rate);
+      }
+      tbody.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => recalcStockRow(inp.closest('tr'))));
+
       document.getElementById("saveStockBtn").addEventListener("click", async () => {
         const st=document.getElementById("stockStatus"); st.textContent="सेव हो रहा है…"; st.classList.remove("err");
         try {
-          const items = Array.from(document.querySelectorAll("#stockBody tr[data-key]")).map(tr => ({
+          const payload = Array.from(document.querySelectorAll("#stockBody tr[data-key]")).map(tr => ({
             key: tr.getAttribute("data-key"),
             openingQty: parseFloat(tr.querySelector(".stock-open").value)||0,
-            openingRate: parseFloat(tr.querySelector(".stock-rate").value)||0,
-            recipeQty: parseFloat(tr.querySelector(".stock-recipe").value)||0
+            broughtQty: parseFloat(tr.querySelector(".stock-brought").value)||0,
+            usedQty: parseFloat(tr.querySelector(".stock-used").value)||0,
+            rate: parseFloat(tr.querySelector(".stock-rate").value)||0
           }));
-          await call("saveStockSettings", {payload:{items}});
-          st.textContent="✓ सेव हो गया"; await renderStock(); await refreshHeader();
+          await call("saveStockSettings", {payload:{items:payload}});
+          st.textContent="✓ Stock सेव हो गया";
+          await renderStock();
+          await refreshHeader();
+        } catch(e) { st.textContent="⚠ "+e.message; st.classList.add("err"); }
+      });
+
+      document.getElementById("saveMaterialCostBtn").addEventListener("click", async () => {
+        const st=document.getElementById("materialCostStatus"); st.textContent="सेव हो रहा है…"; st.classList.remove("err");
+        try {
+          const amount = Math.max(0, parseFloat(document.getElementById("manualMaterialCost").value)||0);
+          await call("saveManualMaterialCost", {payload:{date, amount}});
+          st.textContent="✓ Material Cost सेव हो गया";
+          await refreshHeader();
         } catch(e) { st.textContent="⚠ "+e.message; st.classList.add("err"); }
       });
     } catch(e) { showLoadError(c, typeof e !== "undefined" ? e : null); }
@@ -1147,7 +1142,7 @@
     c.querySelectorAll('.ms-price').forEach(inp=>{let t=null; inp.addEventListener('change',()=>{const tr=inp.closest('tr'),id=tr.getAttribute('data-variety-id'),price=parseFloat(inp.value)||0; clearTimeout(t); t=setTimeout(async()=>{try{await call('updateMomosVariety',{payload:{id,price}}); const v=(dayCache.varieties||[]).find(x=>x.id===id); if(v)v.price=price;}catch(e){}},300);});});
     tbody.querySelectorAll('.mh-rate').forEach(inp=>{let t=null; inp.addEventListener('input',()=>{rates[inp.getAttribute('data-key')]=parseFloat(inp.value)||0; recalc(); clearTimeout(t); t=setTimeout(()=>call('saveMomosHisabRate',{payload:{key:inp.getAttribute('data-key'),value:rates[inp.getAttribute('data-key')]}}).catch(()=>{}),600);});});
 
-    const textReport=()=>{const r=computePL(); const lines=['📋 Crave Kitchen — रोज़ का हिसाब',date,'','कुल बिक्री: '+money(r? r.received : 0),'आज इस्तेमाल हुआ material: '+money(dayCache.stock?dayCache.stock.materialCost:0),'Labour + Other: '+money((dayCache.totalExpense||0)-(dayCache.stock?dayCache.stock.materialCost:0)),'कुल खर्च: '+(r&&r.expense!==null?money(r.expense):'—'),r&&r.pl!==null?((r.pl<0?'हानि':'लाभ')+': '+money(Math.abs(r.pl))):'लाभ/हानि: —']; return lines.join('\n');};
+    const textReport=()=>{const r=computePL(); const lines=['📋 Crave Kitchen — रोज़ का हिसाब',date,'','कुल बिक्री: '+money(r? r.received : 0),'आज का Material Cost: '+money(dayCache.stock?dayCache.stock.materialCost:0),'Labour + Other: '+money((dayCache.totalExpense||0)-(dayCache.stock?dayCache.stock.materialCost:0)),'कुल खर्च: '+(r&&r.expense!==null?money(r.expense):'—'),r&&r.pl!==null?((r.pl<0?'हानि':'लाभ')+': '+money(Math.abs(r.pl))):'लाभ/हानि: —']; return lines.join('\n');};
     document.getElementById('shareWhatsappBtn').addEventListener('click',async()=>{const text=textReport(); if(navigator.share){try{await navigator.share({text});return;}catch(e){}} window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');});
     recalc();
   }
