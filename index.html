@@ -256,6 +256,15 @@
   // एक तारीख का सारा डेटा: खर्च (5 सेक्शन), प्लेट रेट, और मोमोज़ की गिनती
   async function loadDayData(date, withCounts) {
     const result = await withTimeout(safeCall("getDayData", { date, withCounts: withCounts !== false }), 15000);
+    if (result && !result.error) { try { localStorage.setItem("crave_day_" + date, JSON.stringify(result)); } catch (e) {} }
+    return buildDayData(result, withCounts);
+  }
+  // pichhla dekha hua hisaab turant dikhao (upar ka laabh/haani); naya data aate hi badal jaata hai
+  function applyCachedDay() {
+    const date = currentDate();
+    try { const raw = JSON.parse(localStorage.getItem("crave_day_" + date) || "null"); if (raw) applyDayData(date, buildDayData(raw, true)); } catch (e) {}
+  }
+  function buildDayData(result, withCounts) {
     const summaryRes = result && result.summary;
     const rates = (result && result.rates) || {};
     const entryRes = result && result.entry;
@@ -314,7 +323,8 @@
     dayCache = null;
     paymentLoadedFor = null;
     updateHeader();
-    if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 700);
+    applyCachedDay();
+    if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 200);
   }
 
   function updateHeader() {
@@ -1098,9 +1108,9 @@
   // Initial load: render the active tab once. रोज़ का हिसाब already loads the
   // complete day payload, so calling refreshHeader() here would duplicate the
   // slowest request on every page open.
+  applyCachedDay();
   renderActiveTab();
-  // Do not compete with the first tab's API calls. Header loads shortly after first paint.
-  if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 1800);
+  if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 300);
 </script>
 </body>
 </html>
