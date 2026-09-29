@@ -210,13 +210,11 @@
 
   document.getElementById("mainDate").value = todayStr();
   document.getElementById("mainDate").addEventListener("change", () => {
-    // पहले date/cache बदलो, फिर tab/payment load करो।
-    // Header को थोड़ी देर बाद background में refresh करेंगे ताकि एक साथ
-    // कई Google Apps Script requests न चलें।
+    // पहले date/cache बदलो, फिर उसी नई तारीख पर tab/payment load करो।
+    // पुरानी तारीख का render पहले चलाने से duplicate requests और गलत data दिखता था।
     onDateChange();
     renderActiveTab();
-    setTimeout(() => loadPayment(), 500);
-    setTimeout(() => refreshHeader(), 1200);
+    // Payment is included in the day-summary response; avoid a second API request.
   });
 
   function currentDate() { return document.getElementById("mainDate").value || todayStr(); }
@@ -276,7 +274,7 @@
     if (entryRes && (entryRes.paneerCount !== undefined || entryRes.vegCount !== undefined)) {
       counts={paneer:Number(entryRes.paneerCount)||0,veg:Number(entryRes.vegCount)||0}; loadFailed=false;
     }
-    return {rates,expenseLines,missing,totalExpense,counts,loadFailed,salesEntries:salesEntries||[],varieties};
+    return {rates,expenseLines,missing,totalExpense,counts,loadFailed,salesEntries:salesEntries||[],varieties,summary:summaryRes||null,stock:(result&&result.stock)||null};
   }
 
   function applyDayData(date, data) {
@@ -286,7 +284,18 @@
       if (Array.isArray(dayCache.varieties) && dayCache.varieties.length) data.varieties=dayCache.varieties;
       Object.keys(dayCache.rates||{}).forEach(k=>{ if(dayCache.rates[k]!==undefined) data.rates[k]=dayCache.rates[k]; });
     }
-    dayCache=Object.assign({date},data); updateHeader();
+    dayCache=Object.assign({date},data);
+    // getDayData already contains cash/online; use it instead of a separate getPayment call.
+    const summary = data && data.summary;
+    if (summary && (summary.cash !== undefined || summary.online !== undefined)) {
+      const cash = Number(summary.cash) || 0, online = Number(summary.online) || 0;
+      const ci = document.getElementById("cashInput"), oi = document.getElementById("onlineInput");
+      if (ci && document.activeElement !== ci) ci.value = cash || "";
+      if (oi && document.activeElement !== oi) oi.value = online || "";
+      paymentLoadedFor = date;
+      refreshReceived();
+    }
+    updateHeader();
   }
 
   async function refreshHeader() {
@@ -305,6 +314,7 @@
     dayCache = null;
     paymentLoadedFor = null;
     updateHeader();
+    if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 700);
   }
 
   function updateHeader() {
@@ -394,7 +404,7 @@
   function onPaymentTyped() { paymentLoadedFor = currentDate(); refreshReceived(); }
   document.getElementById("cashInput").addEventListener("input", onPaymentTyped);
   document.getElementById("onlineInput").addEventListener("input", onPaymentTyped);
-  loadPayment();
+  // Payment is populated from getDayData; no separate startup request.
 
   // कैश + ऑनलाइन = कुल बिक्री। इससे हेडर और "रोज़ का हिसाब" टैब का लाभ/हानि बनता है
   function receivedNow() {
@@ -455,21 +465,32 @@
   async function renderQtySection(section, title) {
     const date = currentDate();
     const c = document.getElementById("tabContent");
-    let masterRes, entriesRes, ratesRes;
+    let masterRes, entriesRes;
     try {
-      [masterRes, entriesRes, ratesRes] = await Promise.all([
-        call("getMaster", { section }), call("getEntries", { section, date }), safeCall("getMomosHisabRates")
+      // Only the two requests required to draw this tab block first paint.
+      [masterRes, entriesRes] = await Promise.all([
+        call("getMaster", { section }), call("getEntries", { section, date })
       ]);
     } catch (e) {
       showLoadError(c);
       return;
     }
+    // Global rates are only a convenience for remembered per-item prices.
+    // Fetch them in the background; localStorage is used immediately.
+    let ratesRes = null;
+    safeCall("getMomosHisabRates").then(r => {
+      if (r && r.rates) {
+        try { localStorage.setItem("crave_global_rates", JSON.stringify(r.rates)); } catch(e) {}
+      }
+    });
     const items = (masterRes.items || []).filter(it => it.active);
     const existing = {};
     (entriesRes.entries || []).forEach(e => { existing[String(e.itemId).trim()] = e; });
 
     // ₹/यूनिट हर दिन बना रहता है; मात्रा हर तारीख की अलग होती है (नई तारीख पर खाली)
-    const savedRates = (ratesRes && ratesRes.rates) || {};
+    let savedRates = {};
+    try { savedRates = JSON.parse(localStorage.getItem("crave_global_rates") || "{}") || {}; } catch(e) {}
+    if (ratesRes && ratesRes.rates) Object.assign(savedRates, ratesRes.rates);
     const persistedRate = id => {
       const v = Number(savedRates[itemRateKey(section, id)]);
       if (v > 0) return v;
@@ -560,6 +581,7 @@
       try {
         const saved = await call("saveEntries", { section, payload: { date, entries } });
         await renderActiveTab();
+        await refreshHeader();
         entries.forEach(e => {
           if (e.rate > 0 && Number(persistedRate(e.itemId)) !== e.rate) rememberRate(e.itemId, e.rate);
         });
@@ -915,7 +937,7 @@
       let totalMomos=0;
       try {
         const d = await call("getMomosDailySales", {date});
-        totalMomos = (d.entries||[]).reduce((s,e)=>s+(Number(e.pieces)||0),0);
+        totalMomos = (d.items||[]).reduce((s,e)=>s+(Number(e.pieces)||0),0);
       } catch(e) {}
       document.getElementById("stockMomoCount").textContent = totalMomos.toLocaleString("en-IN");
       document.getElementById("saveStockBtn").addEventListener("click", async () => {
@@ -928,7 +950,7 @@
             recipeQty: parseFloat(tr.querySelector(".stock-recipe").value)||0
           }));
           await call("saveStockSettings", {payload:{items}});
-          st.textContent="✓ सेव हो गया"; await renderStock();
+          st.textContent="✓ सेव हो गया"; await renderStock(); await refreshHeader();
         } catch(e) { st.textContent="⚠ "+e.message; st.classList.add("err"); }
       });
     } catch(e) { showLoadError(c); }
@@ -1073,12 +1095,12 @@
     recalc();
   }
 
-  // Initial load: first render the active tab.
-  // Payment + header are deliberately staggered so the first paint does not
-  // fire 5 Google Apps Script requests at once.
+  // Initial load: render the active tab once. रोज़ का हिसाब already loads the
+  // complete day payload, so calling refreshHeader() here would duplicate the
+  // slowest request on every page open.
   renderActiveTab();
-  setTimeout(() => loadPayment(), 500);
-  if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 1200);
+  // Do not compete with the first tab's API calls. Header loads shortly after first paint.
+  if (activeTab !== "momoshisab") setTimeout(() => refreshHeader(), 1800);
 </script>
 </body>
 </html>
