@@ -1195,18 +1195,20 @@
       const money0=v=>money(Number(v)||0);
       const listLines=(items, formatter)=> items && items.length ? items.map(formatter) : ['• कोई entry नहीं'];
       try {
-        const [dailyRes,momosRes,packingRes,workRes,othersRes]=await Promise.all([
+        const [dailyRes,momosRes,packingRes,workRes,othersRes,stockRes]=await Promise.all([
           call('getEntries',{section:'daily',date}),
           call('getEntries',{section:'momos',date}),
           call('getEntries',{section:'packing',date}),
           call('getWorkExpense',{date}),
-          call('getOthers',{date})
+          call('getOthers',{date}),
+          call('getStockReport',{date}).catch(()=>null)
         ]);
         const daily=dailyRes.entries||[], momosSaaman=momosRes.entries||[], packing=packingRes.entries||[];
         const work=workRes.entries||[], others=othersRes.entries||[], sales=dayCache.salesEntries||[];
         const cash=Number(document.getElementById('cashInput')?.value)||0;
         const online=Number(document.getElementById('onlineInput')?.value)||0;
         const totalSales=cash+online;
+        const usedItems=((stockRes&&!stockRes.error&&stockRes.items)||[]).filter(i=>(Number(i.usedQty)||0)>0);
         const materialCost=Number(dayCache.stock?.materialCost)||0;
         const workTotal=work.reduce((a,x)=>a+(Number(x.amount)||0),0);
         const othersTotal=others.reduce((a,x)=>a+(Number(x.amount)||0),0);
@@ -1230,6 +1232,9 @@
           'Packing — आज क्या आया',
           ...listLines(packing,e=>'• '+(e.itemName||'Packing')+' — '+(Number(e.quantity)||0)+' '+(e.unit||'')+' — '+money0(e.total)),
           '',
+          'Momos बनाने में लगा सामान — आज क्या-क्या use हुआ',
+          ...listLines(usedItems,i=>'• '+(i.name||'सामान')+' — '+(Number(i.usedQty)||0)+' '+(i.unit||'')+((Number(i.rate)||0)>0?' — '+money0((Number(i.usedQty)||0)*(Number(i.rate)||0)):'')),
+          '',
           'Work Expense',
           ...listLines(work,e=>'• '+(e.itemName||'Work')+' — '+money0(e.amount)),
           '',
@@ -1249,7 +1254,7 @@
         return '📋 Crave Kitchen — रोज़ का हिसाब\n📅 '+date+'\n\nरिपोर्ट तैयार नहीं हो सकी: '+(e&&e.message?e.message:'Unknown error');
       }
     }
-    document.getElementById('shareWhatsappBtn').addEventListener('click',async()=>{const btn=document.getElementById('shareWhatsappBtn'); const old=btn.textContent; btn.textContent='रिपोर्ट तैयार हो रही है…'; try{const text=await textReport(); if(navigator.share){try{await navigator.share({text});return;}catch(e){}} window.open('https://wa.me/?text='+encodeURIComponent(text),'_blank');}finally{btn.textContent=old;}});
+    document.getElementById('shareWhatsappBtn').addEventListener('click',async()=>{const btn=document.getElementById('shareWhatsappBtn'); const old=btn.textContent; btn.textContent='रिपोर्ट तैयार हो रही है…'; try{const text=await textReport(); const enc=encodeURIComponent(text); const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent); if(isMobile){ window.location.href='whatsapp://send?text='+enc; setTimeout(()=>{ if(!document.hidden) window.location.href='https://wa.me/?text='+enc; },2000); return; } window.open('https://wa.me/?text='+enc,'_blank');}finally{btn.textContent=old;}});
     recalc();
   }
 
